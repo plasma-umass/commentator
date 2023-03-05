@@ -1,5 +1,3 @@
-import click
-import glob
 import openai
 import os
 import sys
@@ -21,12 +19,14 @@ def process(code, language=None):
     str: A string of the processed code.
     """
     if language:
-        translate_text = f"For each docstring and comment, add a newline and '---', and then include the translation in {language}."
+        translate_text = f"Write each docstring and comment first in English, then add a newline and '---', and add the translation to {language}."
     else:
         translate_text = ""
 
     content = f"Rewrite the following Python code by adding high-level explanatory comments and docstrings, if they are not already present. Try to infer what each function does, using the names and computations as hints. {translate_text} {code}"
 
+    # print(content)
+    
     completion = openai.ChatCompletion.create(
       model="gpt-3.5-turbo", 
       messages=[
@@ -38,11 +38,15 @@ def process(code, language=None):
     )
 
     c = completion
+    # print(c)
+    
     text = c['choices'][0]['message']['content']
+
     first_index = text.find("```")
     second_index = text.find("```", first_index + 1)
     if first_index == -1 or second_index == -1:
-        return None
+        # Assume that a code block was emitted that wasn't surrounded by ```.
+        return text
     return text[first_index + 3:second_index]
 
 
@@ -54,23 +58,3 @@ def api_key():
         pass
     return key
     
-@click.command()
-@click.argument('file', type=click.Path(exists=True))
-@click.argument('api-key', default=api_key())
-@click.option('--language', required=False, default=None)
-def commentaire(file, api_key, language):
-    openai.api_key = api_key
-    files = [file]
-
-    for file in files:
-        print(f"Processing {file}.")
-        with open(file, 'r') as f:
-            code = f.read()
-            result = process(code, language)
-        with open(file, 'w') as f:
-            f.write(result)
-    print("Commentaire complete.")
-
-
-if __name__ == '__main__':
-    commentaire()
