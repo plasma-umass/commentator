@@ -17,6 +17,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+commentaire = "commentaire.__main__:main"
+
 [project.urls]
 "Homepage" = "https://github.com/emeryberger/commentaire"
 "Bug Tracker" = "https://github.com/emeryberger/commentaire"
