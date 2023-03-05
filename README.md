@@ -64,7 +64,7 @@ def foo(x):
     return y
 ```
 
-You can run Commentaire on this file to add comments and translations:
+You can run Commentaire on this file to add comments (and optionally, translations to another language):
 
 ```
 $ commentaire example.py --language Spanish
