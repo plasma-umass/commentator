@@ -31,7 +31,7 @@ def process(code, language=None):
       model="gpt-3.5-turbo", 
       messages=[
           {"role": "system",
-           "content" : "You are a Python programming assistant who ONLY responds with blocks of code."},
+           "content" : "You are a Python programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```."},
           {"role": "user",
            "content": content}
       ]

@@ -2,11 +2,11 @@ import openai
 import click
 import glob
 
-from . import commentaire
+from . import commentator
 
 @click.command()
 @click.argument('file', type=click.Path(exists=True))
-@click.argument('api-key', default=commentaire.api_key())
+@click.argument('api-key', default=commentator.api_key())
 @click.option('--language', required=False, default=None)
 def main(file, api_key, language):
     openai.api_key = api_key
@@ -16,12 +16,12 @@ def main(file, api_key, language):
         print(f"Processing {file}.")
         with open(file, 'r') as f:
             code = f.read()
-            result = commentaire.process(code, language)
+            result = commentator.process(code, language)
         if result:
             with open(file, 'w') as f:
                 f.write(result)
         else:
             print(f"Failed to process {file}.")
-    print("Commentaire complete.")
+    print("Commentator complete.")
 
 main()
