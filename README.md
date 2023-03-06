@@ -35,7 +35,7 @@ output.
 To install Commentator, you can use pip:
 
 ```
-$ pip install commentator
+$ pip install python-commentator
 ```
 
 
