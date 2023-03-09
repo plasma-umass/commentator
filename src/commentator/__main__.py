@@ -20,11 +20,11 @@ def main(file, api_key, language):
     files = [file]
 
     for file in files:
-        print(f"Processing {file}.")
+        print(f"Commentating {file}:")
         with open(file, 'r') as f:
             code = f.read()
             for i in range(10):
-                result = commentator.process(file, code, language)
+                result = commentator.commentate(file, code, language)
                 if result:
                     break
                 print("Failed to parse. Trying again.")
