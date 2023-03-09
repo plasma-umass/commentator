@@ -1,8 +1,79 @@
 import openai
 import os
 import sys
+import ast
 
 import ast
+
+test = """
+def abs(n):
+    \"\"\" WUT \"\"\"
+    # Check if integer is negative
+    if n < 0:
+        # Return the opposite sign of n (i.e., multiply n by -1)
+        return -n
+    else:
+        # Return n (which is already a positive integer or zero)
+        return n
+"""
+
+test2 = """
+def abs(n):
+    if n < 0:
+        return -n
+    else:
+        return n
+"""
+
+def remove_code_before_function(code):
+    # Parse the code into an AST
+    tree = ast.parse(code)
+
+    # Find the position of the first function definition
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            start_index = node.lineno - 1  # Subtract 1 to remove leading newline
+            break
+    else:
+        # No function definition found, return the original code
+        return code
+
+    # Extract the code from the first function definition onwards
+    lines = code.splitlines()
+    return '\n'.join(lines[start_index:])
+
+def remove_annotations(node):
+    if isinstance(node, ast.AnnAssign):
+        node.annotation = None
+    elif isinstance(node, ast.FunctionDef):
+        for arg in node.args.args:
+            arg.annotation = None
+            
+def remove_comments(node):
+    if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef) or \
+       isinstance(node, ast.ClassDef) or isinstance(node, ast.Module):
+        if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
+            node.body[0].value.s = ''
+        node.body = [n for n in node.body if not isinstance(n, ast.Expr) or not isinstance(n.value, ast.Str)]
+    elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Str):
+        node.value.s = ''
+
+def compare_python_code(code1, code2):
+    # Parse the code into an AST
+    tree1 = ast.parse(code1)
+    tree2 = ast.parse(code2)
+
+    # Remove any comments from the AST
+    for node in ast.walk(tree1):
+        remove_comments(node)
+        remove_annotations(node)
+    for node in ast.walk(tree2):
+        remove_comments(node)
+        remove_annotations(node)
+
+    # Compare the two ASTs
+    return ast.unparse(tree1) == ast.unparse(tree2)
+
 
 def extract_function_ast(program_str, function_name):
     # Parse the program string into an AST
@@ -220,8 +291,10 @@ def commentate(filename, code, language=None):
 
         if result_ast:
             orig_ast = ast.parse(the_code)
-            if extract_names(orig_ast) != extract_names(result_ast):
-                # print(f"Mismatched names: {code_block}.")
+            if not compare_python_code(remove_code_before_function(the_code),
+                                       remove_code_before_function(code_block)):
+                # if extract_names(orig_ast) != extract_names(result_ast):
+                # print(f"failed: {remove_code_before_function(ast.unparse(orig_ast))} / {remove_code_before_function(ast.unparse(result_ast))}.")
                 print("failed (failed to validate).")
                 code_block = None
         else:
