@@ -38,22 +38,6 @@ To install Commentator, you can use pip:
 $ pip install python-commentator
 ```
 
-
-## Functionality
-
-Commentator has a single function, `process`, which takes in a string
-of Python code and an optional language parameter. If language is
-specified, the function translates each docstring and comment in the
-code to the specified language and includes the translated text in the
-output. If language is not specified, the function does not include
-any translations in the output. The output text includes the original
-code, high-level explanatory comments, and any translated text (if
-language is specified).
-
-The `commentator` command uses `process` to add comments and
-translations to Python code in a file. It processes each file in a
-list of files passed as arguments to the `commentator` command.
-
 ## Example
 
 Suppose you have a file called `example.py` with the following code:
