@@ -3,7 +3,25 @@ import os
 import sys
 import ast
 
-import ast
+def update_args(old_function_ast, new_function_ast):
+    # Get the list of argument names from the old function AST
+    arg_names = [arg.arg for arg in old_function_ast.args.args]
+    
+    # Create a new argument list with the same argument names and updated annotations
+    new_args = []
+    for arg in new_function_ast.args.args:
+        if arg.arg in arg_names:
+            # If the argument is in the old argument list, use the new annotation
+            old_arg = old_function_ast.args.args[arg_names.index(arg.arg)]
+            new_arg = ast.arg(arg=arg.arg, annotation=arg.annotation)
+            new_args.append(new_arg)
+        else:
+            # If the argument is not in the old argument list, use the new argument and annotation
+            new_args.append(arg)
+    
+    # Assign the new argument list to the arguments of the old function AST
+    old_function_ast.args.args = new_args
+    return old_function_ast
 
 test = """
 def abs(n):
@@ -24,6 +42,8 @@ def abs(n):
     else:
         return n
 """
+
+import ast
 
 def remove_code_before_function(code):
     # Parse the code into an AST
@@ -48,6 +68,7 @@ def remove_annotations(node):
     elif isinstance(node, ast.FunctionDef):
         for arg in node.args.args:
             arg.annotation = None
+        node.returns = None
             
 def remove_comments(node):
     if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef) or \
@@ -73,6 +94,20 @@ def compare_python_code(code1, code2):
 
     # Compare the two ASTs
     return ast.unparse(tree1) == ast.unparse(tree2)
+
+
+def now_has_types(code1, code2):
+    # Parse the code into an AST
+    tree1 = ast.parse(code1)
+    tree2 = ast.parse(code2)
+    print(f"BEFORE: {ast.unparse(tree2)}")
+
+    for node in ast.walk(tree2):
+        remove_annotations(node)
+
+    # Compare the two ASTs
+    # Return True iff we've added types to the second.
+    return ast.unparse(tree1) != ast.unparse(tree2)
 
 
 def extract_function_ast(program_str, function_name):
@@ -127,6 +162,9 @@ def replace_function(program_str, function_name, new_function_str):
 
     # Replace the old function body with the new function body
     function_node.body = new_function_ast.body
+    
+    # Replace the (possibly now annotated) arguments
+    update_args(function_node, new_function_ast)
 
     # Convert the modified AST back to source code
     return ast.unparse(program_ast)
@@ -252,60 +290,77 @@ def commentate(filename, code, language=None):
 
     programming_language = get_language_from_file_name(filename)+ " "
 
+    max_tries = 3
+
+    tries = 0
+    
     for func_name in enumerate_functions(code):
 
-        print(f"  commentating {func_name}...", end="", flush=True)
-        the_code = extract_function_source(code, func_name)
+        while tries < max_tries:
 
-        content = f"Rewrite the following {programming_language}code by adding high-level explanatory comments and docstrings, if they are not already present. Try to infer what each function does, using the names and computations as hints. If there are existing comments, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. {translate_text} {the_code}"
-
-        completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo", 
-            messages=[
-                {"role": "system",
-                 "content" : "You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```."},
-                {"role": "user",
-                 "content": content}
-            ]
-        )
+            tries += 1
         
-        c = completion
-        
-        text = c['choices'][0]['message']['content']
+            print(f"  commentating {func_name} ({tries}) ...", end="", flush=True)
+            the_code = extract_function_source(code, func_name)
 
-        first_index = find_code_start(text) # text.find("```")
-        second_index = text.find("```", first_index + 1)
-        if first_index == -1 or second_index == -1:
-            # Assume that a code block was emitted that wasn't surrounded by ```.
-            code_block = text
-        else:
-            code_block = text[first_index:second_index]
+            content = f"Rewrite the following {programming_language}code by adding high-level explanatory comments, PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}"
 
-        if get_language_from_file_name(filename) == "Python":
             try:
-                result_ast = ast.parse(code_block)
-            except:
-                # print(f"Parse failure: {code_block}")
-                print("failed (parse failure).")
-                result_ast = None
+                completion = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo", 
+                    messages=[
+                        {"role": "system",
+                         "content" : "You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```."},
+                        {"role": "user",
+                         "content": content}
+                    ]
+                )
+            except openai.error.APIError:
+                print("encountered a system error, retrying.")
+                continue
 
-        if result_ast:
-            orig_ast = ast.parse(the_code)
-            if not compare_python_code(remove_code_before_function(the_code),
-                                       remove_code_before_function(code_block)):
-                # if extract_names(orig_ast) != extract_names(result_ast):
-                # print(f"failed: {remove_code_before_function(ast.unparse(orig_ast))} / {remove_code_before_function(ast.unparse(result_ast))}.")
-                print("failed (failed to validate).")
+            c = completion
+
+            text = c['choices'][0]['message']['content']
+
+            first_index = find_code_start(text) # text.find("```")
+            second_index = text.find("```", first_index + 1)
+            if first_index == -1 or second_index == -1:
+                # Assume that a code block was emitted that wasn't surrounded by ```.
+                code_block = text
+            else:
+                code_block = text[first_index:second_index]
+
+            if get_language_from_file_name(filename) == "Python":
+                try:
+                    result_ast = ast.parse(code_block)
+                except:
+                    # print(f"Parse failure: {code_block}")
+                    print("failed (parse failure).")
+                    result_ast = None
+
+            if result_ast:
+                orig_ast = ast.parse(the_code)
+                if not compare_python_code(remove_code_before_function(the_code),
+                                           remove_code_before_function(code_block)):
+                    # if extract_names(orig_ast) != extract_names(result_ast):
+                    print(f"failed: {remove_code_before_function(ast.unparse(orig_ast))} / {remove_code_before_function(ast.unparse(result_ast))}.")
+                    print("failed (failed to validate).")
+                    code_block = None
+            else:
                 code_block = None
-        else:
-            code_block = None
 
-        if code_block:
-            print("success!")
-            # Successfully parsed the code. Integrate it.
-            # print(f"old code: {code}")
-            code = replace_function(code, func_name, code_block)
-            # print(f"new code: {code}")
+            if code_block:
+                print(f"CHECKING {code_block}")
+                if not now_has_types(the_code, code_block):
+                    print("Failed to add types.")
+                else:
+                    print(f"success! CODE BLOCK {code_block}")
+                    # Successfully parsed the code. Integrate it.
+                    print(f"old code: {code}")
+                    code = replace_function(code, func_name, code_block)
+                    print(f"new code: {code}")
+                    break
         
     return code
 
