@@ -1,3 +1,4 @@
+import asyncio
 import openai
 import click
 import glob
@@ -7,15 +8,7 @@ import ast
 # import commentator
 from . import commentator
 
-@click.command()
-@click.argument('file', type=click.Path(exists=True))
-@click.argument('api-key', default=commentator.api_key())
-@click.option('--language', help="Optionally adds translations in the (human) language of your choice.", required=False, default=None)
-def main(file, api_key, language):
-    """Automatically adds comments to your code.
-
-    See https://github.com/emeryberger/commentator for more information.
-    """
+def do_it(file, api_key, language):
     openai.api_key = api_key
     files = [file]
 
@@ -38,6 +31,17 @@ def main(file, api_key, language):
                 f.write(result)
         else:
             print(f"Failed to process {file}.")
+    
+@click.command()
+@click.argument('file', type=click.Path(exists=True))
+@click.argument('api-key', default=commentator.api_key())
+@click.option('--language', help="Optionally adds translations in the (human) language of your choice.", required=False, default=None)
+def main(file, api_key, language):
+    """Automatically adds comments to your code.
+
+    See https://github.com/emeryberger/commentator for more information.
+    """
+    do_it(file, api_key, language)
     print("Commentator complete.")
 
 main()

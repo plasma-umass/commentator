@@ -32,7 +32,14 @@ def get_comments(programming_language: str, translate_text: str, the_code: str) 
               f"{translate_text} {the_code}"    
     try:
         completion = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=[{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.'}, {'role': 'user', 'content': content}])
+    except openai.error.AuthenticationError:
+        print()
+        print('You need an OpenAI key to use commentator. You can get a key here: https://openai.com/api/')
+        print('Invoke commentator with the api-key argument or set the environment variable OPENAI_API_KEY.')
+        import sys
+        sys.exit(1)
     except openai.error.APIError:
+        # Something went wrong server-side. Hopefully, it's transient and retries will work.
         return None
 
     return completion
