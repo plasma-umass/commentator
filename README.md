@@ -45,32 +45,39 @@ $ pip install python-commentator
 Suppose you have a file called `example.py` with the following code:
 
 ```
-def foo(x):
-    y = x + 1
-    return y
+def absolutely(n):
+    if n < 0:
+        return -n
+    else:
+        return n
 ```
 
-You can run Commentator on this file to add comments (and optionally, translations to another language):
+Run Commentator on this file to add comments and type annotations:
 
 ```
-$ commentator example.py --language Spanish
+$ commentator example.py
 ```
 
 The resulting code will be:
 
 ```
-"""
-This function takes in a value x and returns its incremented value.
-
-Esta función toma un valor x y devuelve su valor incrementado.
-"""
-def foo(x):
-    y = x + 1
-    return y
+def absolutely(n: int):
+    """
+    Return the absolute value of an integer.
+    
+    Args:
+    n(int): Integer number.
+    
+    Returns:
+    An absolute integer value of the input.
+    """
+    if n < 0:
+        return -n
+    else:
+        return n
 ```
 
-Note that Commentator has added high-level explanatory comments and
-translated the existing docstring and comment to Spanish.
+Note that Commentator has added a docstring and type annotations.
 
 
 
