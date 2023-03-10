@@ -2,10 +2,28 @@ import openai
 import os
 import sys
 import ast
+import logging
 
-def update_args(old_function_ast: ast.FunctionDef, new_function_ast: ast.FunctionDef):
+logname = 'commentator.log'
+
+logging.basicConfig(filename=logname,
+                    filemode='a',
+                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
+logging.info('Running commentator.')
+
+def update_args(old_function_ast: ast.FunctionDef, new_function_ast: ast.FunctionDef) -> ast.FunctionDef:
     """
-    Updates the arguments of a function defined by old_function_ast with the arguments of new_function_ast.
+    Updates the arguments of a function defined by `old_function_ast` with the arguments of `new_function_ast`.
+
+    Args:
+        old_function_ast: The AST node of the function to be updated.
+        new_function_ast: The AST node of the function whose arguments to update with.
+
+    Returns:
+        The updated AST node of the old function.
     """
     arg_names = [arg.arg for arg in old_function_ast.args.args]
     new_args = []
@@ -22,15 +40,15 @@ test = '\ndef abs(n):\n    """ WUT """\n    # Check if integer is negative\n    
 test2 = '\ndef abs(n):\n    if n < 0:\n        return -n\n    else:\n        return n\n'
 import ast
 
-def remove_code_before_function(code: str):
+def remove_code_before_function(code: str) -> str:
     """
     Remove any code above a function definition in the provided code string.
 
     Args:
-        code (str): The code string to process.
+        code: The code string to process.
 
     Returns:
-        str: The code string with all code above the first function definition removed.
+        The code string with all code above the first function definition removed.
     """
     tree = ast.parse(code)
     for node in ast.walk(tree):
@@ -83,11 +101,18 @@ def has_types(func_code):
             all_typed = all([arg.annotation for arg in node.args.args]) and node.returns
             return all_typed
     return False
-        
+
+def has_docstring(func_code):
+    tree = ast.parse(func_code)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
+                return len(node.body[0].value.s) > 0
+    return False
+
 def now_has_types(code1, code2):
     tree1 = ast.parse(code1)
     tree2 = ast.parse(code2)
-    # print(f'BEFORE: {ast.unparse(tree2)}')
     for node in ast.walk(tree2):
         remove_annotations(node)
     return ast.unparse(tree1) != ast.unparse(tree2)
@@ -188,12 +213,17 @@ def commentate(filename, code, language=None):
         translate_text = ''
     programming_language = get_language_from_file_name(filename) + ' '
     max_tries = 3
-    tries = 0
     for func_name in enumerate_functions(code):
+        tries = 0
         while tries < max_tries:
             tries += 1
             print(f'  commentating {func_name} ({tries}) ...', end='', flush=True)
             the_code = extract_function_source(code, func_name)
+
+            if has_docstring(the_code) and has_types(the_code):
+                print("already has a docstring and types.")
+                break
+            
             content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments, PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
             try:
                 completion = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=[{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.'}, {'role': 'user', 'content': content}])
@@ -213,24 +243,23 @@ def commentate(filename, code, language=None):
                     result_ast = ast.parse(code_block)
                 except:
                     print('failed (parse failure).')
+                    logging.error(f"Parse failure:\n{code_block}")
                     result_ast = None
             if result_ast:
                 orig_ast = ast.parse(the_code)
                 if not compare_python_code(remove_code_before_function(the_code), remove_code_before_function(code_block)):
-                    # print(f'failed: {remove_code_before_function(ast.unparse(orig_ast))} / {remove_code_before_function(ast.unparse(result_ast))}.')
                     print('failed (failed to validate).')
+                    logging.error(f"Validation failure:\n{code_block}")
                     code_block = None
             else:
                 code_block = None
             if code_block:
-                # print(f'CHECKING {code_block}')
                 if not has_types(code_block):
                     print('Failed to add types.')
+                    logging.error(f"Failed to add types:\n{code_block}")
                 else:
-                    print(f'success!') # CODE BLOCK {code_block}')
-                    # print(f'old code: {code}')
+                    print(f'success!')
                     code = replace_function(code, func_name, code_block)
-                    # print(f'new code: {code}')
                     break
     return code
 
