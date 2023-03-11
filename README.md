@@ -21,7 +21,7 @@ $ export OPENAI_API_KEY=<your-api-key>
 or
 
 ```
-$ commentator <file> <api-key>
+$ commentator --api-key <your-api-key> FILE1 ...
 ```
 
 Commentator takes a path to a Python file and an optional language
