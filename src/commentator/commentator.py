@@ -27,6 +27,7 @@ async def get_comments(programming_language: str, func_name: str, translate_text
     :param the_code: a string representing the code to be commented
     :return: an optional completion object
     """
+    import httpx
     content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments, PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
     try:
         max_trials = 3
@@ -36,21 +37,66 @@ async def get_comments(programming_language: str, func_name: str, translate_text
             if validated(the_code, code_block):
                 global successful_comments
                 successful_comments += 1
+                # Splice in the types and the docstring from the generated function into the original function.
+                the_code_ast = ast.parse(the_code)
+                code_block_ast = ast.parse(code_block)
+                for node in ast.walk(the_code_ast):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        tca = node
+                        break
+                for node in ast.walk(code_block_ast):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        cba = node
+                        break
+                replace_function_annotations(tca, cba)
+                code_block = ast.unparse(tca)
                 break
             else:
                 logging.info(f'Failed to validate:\n-----\n{code_block}\n-----')
                 code_block = ''
-    except openai.error.AuthenticationError:
+    except (openai.error.AuthenticationError, httpx.LocalProtocolError):
         print()
         print('You need an OpenAI key to use commentator. You can get a key here: https://openai.com/api/')
         print('Invoke commentator with the api-key argument or set the environment variable OPENAI_API_KEY.')
         import sys
         sys.exit(1)
-    except:
+    except Exception as e:
         pbar.update(1)
         return ''
     pbar.update(1)
     return code_block
+
+def replace_function_annotations(target, source):
+    """
+    Replaces the docstrings, argument type annotations, and return type annotations of a function with those of another function.
+
+    Args:
+        target (ast node): The function node to be updated.
+        source (ast node): The function node to use as the source for the annotations.
+
+    Returns:
+        None
+    """
+    # Replace argument and return type annotations
+    for i, (target_arg, source_arg) in enumerate(zip(target.args.args, source.args.args)):
+        if source_arg.annotation is not None:
+            target_arg.annotation = source_arg.annotation
+        elif i < len(source.args.defaults):
+            target_arg.annotation = type(source.args.defaults[i]).__name__
+
+    if source.returns is not None:
+        target.returns = source.returns
+    else:
+        target.returns = ast.parse('None').body[0].value
+
+    # Replace docstring
+    if ast.get_docstring(source):
+        if ast.get_docstring(target):
+            target.body[0].value.s = ast.get_docstring(source)
+        else:
+            docstring_node = ast.Expr(ast.Str(ast.get_docstring(source)))
+            target.body.insert(0, docstring_node)
+            
 
 def update_args(old_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef], new_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
     """
@@ -355,9 +401,9 @@ def validated(the_code: str, code_block: str) -> bool:
         result_ast = ast.parse(code_block)
     except:
         return False
-    if result_ast:
-        if not compare_python_code(remove_code_before_function(the_code), remove_code_before_function(code_block)):
-            return False
+    #if result_ast:
+    #    if not compare_python_code(remove_code_before_function(the_code), remove_code_before_function(code_block)):
+    #        return False
     if result_ast and has_types(code_block):
         return True
     return False
