@@ -8,7 +8,7 @@ import ast
 # import commentator
 from . import commentator
 
-def do_it(file, api_key, language):
+async def do_it(file, api_key, language):
     openai.api_key = api_key
     files = [file]
 
@@ -16,11 +16,7 @@ def do_it(file, api_key, language):
         print(f"Commentating {file}:")
         with open(file, 'r') as f:
             code = f.read()
-            for i in range(10):
-                result = commentator.commentate(file, code, language)
-                if result:
-                    break
-                print("Failed to parse. Trying again.")
+            result = await commentator.commentate(file, code, language)
         if result:
             save_path = "backup"
             if not os.path.exists(save_path):
@@ -41,7 +37,7 @@ def main(file, api_key, language):
 
     See https://github.com/emeryberger/commentator for more information.
     """
-    do_it(file, api_key, language)
+    asyncio.run(do_it(file, api_key, language))
     print("Commentator complete.")
 
 main()
