@@ -6,9 +6,7 @@ import openai
 import os
 import sys
 import tqdm
-
 from typing import cast, Optional, List, Set, Union
-
 logname = 'commentator.log'
 logging.basicConfig(filename=logname, filemode='a', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.info('Running commentator.')
@@ -27,20 +25,16 @@ async def get_comments(programming_language: str, func_name: str, translate_text
     :param the_code: a string representing the code to be commented
     :return: an optional completion object
     """
-    content = f"Rewrite the following {programming_language}code by adding high-level explanatory comments, " \
-              f"PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the " \
-              f"names and computations as hints. If there are existing comments or types, augment them rather than " \
-              f"replacing them. If the existing comments are inconsistent with the code, correct them. Every " \
-              f"function argument and return value should be typed if possible. Do not change any other code. " \
-              f"{translate_text} {the_code}"    
+    content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments, PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
     try:
-        # completion = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=[{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.'}, {'role': 'user', 'content': content}])
-        completion = await openai_async.chat_complete(openai.api_key,
-                                                      timeout = 30,
-                                                      payload = {
-                                                          "model" : 'gpt-3.5-turbo',
-                                                          "messages" : [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]
-                                                      })
+        max_trials = 3
+        for trial in range(max_trials):
+            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
+            code_block = extract_code_block(completion.json())
+            if validated(the_code, code_block):
+                break
+            else:
+                code_block = ''
     except openai.error.AuthenticationError:
         print()
         print('You need an OpenAI key to use commentator. You can get a key here: https://openai.com/api/')
@@ -48,11 +42,10 @@ async def get_comments(programming_language: str, func_name: str, translate_text
         import sys
         sys.exit(1)
     except openai.error.APIError:
-        # Something went wrong server-side. Hopefully, it's transient and retries will work.
-        return None
-    # print(func_name)
+        pbar.update(1)
+        return ''
     pbar.update(1)
-    return completion
+    return code_block
 
 def update_args(old_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef], new_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
     """
@@ -108,7 +101,7 @@ def remove_annotations(node: ast.AST) -> None:
         node: The AST node to remove annotations from.
     """
     if isinstance(node, ast.AnnAssign):
-        del node.annotation # FIXME?
+        del node.annotation
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         for arg in node.args.args:
             arg.annotation = None
@@ -284,7 +277,17 @@ def get_language_from_file_name(file_name: str) -> str:
     else:
         return ''
 
-def find_code_start(code):
+def find_code_start(code: str) -> int:
+    """
+    Finds the starting location of a code block in a string.
+
+    Args:
+        code: A string containing code.
+
+    Returns:
+        An integer representing the starting position of the code block.
+
+    """
     lines = code.split('\n')
     i = 0
     while i < len(lines) and lines[i].strip() == '':
@@ -297,6 +300,7 @@ def find_code_start(code):
         if len(word) > 0 and ' ' not in word:
             return len(word) + 3
     return -1
+    '\n    Returns -1 if code block is not found.\n    '
 test = '\n```python\ndef abs(n):\n    # Check if integer is negative\n    if n < 0:\n        # Return the opposite sign of n (i.e., multiply n by -1)\n        return -n\n    else:\n        # Return n (which is already a positive integer or zero)\n        return n\n```\n'
 
 def extract_code_block(completion):
@@ -310,7 +314,19 @@ def extract_code_block(completion):
         code_block = text[first_index:second_index]
     return code_block
 
-async def commentate(filename, code, language=None):
+def validated(the_code: str, code_block: str) -> bool:
+    try:
+        result_ast = ast.parse(code_block)
+    except:
+        return False
+    if result_ast:
+        if not compare_python_code(remove_code_before_function(the_code), remove_code_before_function(code_block)):
+            return False
+    if result_ast and has_types(code_block):
+        return True
+    return False
+
+async def commentate(filename: str, code: str, language: Optional[str]=None) -> str:
     """
     This function takes in a string of code and an optional language parameter. If language is specified,
     the function translates each docstring and comment in the code to the specified language and includes the 
@@ -319,54 +335,46 @@ async def commentate(filename, code, language=None):
     translated text (if language is specified). 
 
     Args:
-    code (str): A string of code.
-    language (str, optional): A language code to specify the output language of docstrings and comments. 
-                              Defaults to None.
+        filename (str): A string containing the file name.
+        code (str): A string of code.
+        language (str, optional): A language code to specify the output language of docstrings and comments. 
+                                Defaults to None.
 
     Returns:
-    str: A string of the processed code.
+        str: A string of the processed code.
     """
     if language:
         translate_text = f"Write each docstring and comment first in English, then add a newline and '---', and add the translation to {language}."
     else:
         translate_text = ''
     programming_language = get_language_from_file_name(filename) + ' '
-    max_tries = 3
     the_funcs = []
     for func_name in enumerate_functions(code):
         the_code = extract_function_source(code, func_name)
         if not (has_docstring(the_code) and has_types(the_code)):
             the_funcs.append(func_name)
-    from tqdm import tqdm
-
-    # Define the number of items to iterate over
-    num_items = len(the_funcs)
-
-    # Initialize tqdm with the number of items and a description of the task
-    pbar = tqdm(total=num_items, desc="Processing functions")
-
-    tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar) for f in the_funcs]
-    results = await asyncio.gather(*tasks)
-    code_blocks = [extract_code_block(r.json()) for r in results]
-    for (func_name, code_block) in zip(the_funcs, code_blocks):
-        # Only replace the functions that we can validate.
-        # First, try to parse it.
-        try:
-            result_ast = ast.parse(code_block)
-        except:
-            result_ast = None
-        if result_ast:
-            # Now let's see if the code changed.
-            if not compare_python_code(remove_code_before_function(the_code), remove_code_before_function(code_block)):
-                # Yep, we run away like a coward.
-                result_ast = None
-        if result_ast and has_types(code_block):
-            # We passed all tests and the new code block has types. Replace the function.
-            # print(f"updating {func_name}")
+    if len(the_funcs) == 0:
+        print('All functions already commented and contain type annotations.')
+    else:
+        from tqdm import tqdm
+        num_items = len(the_funcs)
+        pbar = tqdm(total=num_items, desc='Processing functions')
+        tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar) for f in the_funcs]
+        results = await asyncio.gather(*tasks)
+        code_blocks = results
+        for func_name, code_block in zip(the_funcs, code_blocks):
+            if not code_block:
+                continue
             code = replace_function(code, func_name, code_block)
     return code
 
-def api_key():
+def api_key() -> str:
+    """
+    Get the API key from the environment variable 'OPENAI_API_KEY'.
+    
+    :return: The value of the environment variable 'OPENAI_API_KEY'.
+    :rtype: str
+    """
     key = ''
     try:
         key = os.environ['OPENAI_API_KEY']
