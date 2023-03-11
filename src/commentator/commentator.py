@@ -436,11 +436,11 @@ async def commentate(filename: str, code: str, language: Optional[str]=None) -> 
         if not (has_docstring(the_code) and has_types(the_code)):
             the_funcs.append(func_name)
     if len(the_funcs) == 0:
-        print('All functions already commented and contain type annotations.')
+        print(f'Skipping {filename}.')
     else:
         from tqdm import tqdm
         num_items = len(the_funcs)
-        pbar = tqdm(total=num_items, desc='Processing functions')
+        pbar = tqdm(total=num_items, desc=f'Commentating {filename}')
         tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar) for f in the_funcs]
         results = await asyncio.gather(*tasks)
         code_blocks = results
