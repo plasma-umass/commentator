@@ -6,10 +6,12 @@ import openai
 import os
 import sys
 import tqdm
-from typing import cast, Optional, List, Set, Union
+from typing import cast, Optional, List, Set, Tuple, Union
 logname = 'commentator.log'
 logging.basicConfig(filename=logname, filemode='a', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.info('Running commentator.')
+
+successful_comments = 0
 
 async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar) -> Optional[openai.api_resources.Completion]:
     """
@@ -32,8 +34,11 @@ async def get_comments(programming_language: str, func_name: str, translate_text
             completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
             code_block = extract_code_block(completion.json())
             if validated(the_code, code_block):
+                global successful_comments
+                successful_comments += 1
                 break
             else:
+                logging.info(f'Failed to validate:\n-----\n{code_block}\n-----')
                 code_block = ''
     except openai.error.AuthenticationError:
         print()
@@ -41,7 +46,7 @@ async def get_comments(programming_language: str, func_name: str, translate_text
         print('Invoke commentator with the api-key argument or set the environment variable OPENAI_API_KEY.')
         import sys
         sys.exit(1)
-    except openai.error.APIError:
+    except:
         pbar.update(1)
         return ''
     pbar.update(1)
@@ -119,7 +124,20 @@ def remove_comments(node: Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.Class
     elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Str):
         node.value.s = ''
 
-def compare_python_code(code1, code2):
+def compare_python_code(code1: str, code2: str) -> bool:
+    """
+    Compares two blocks of Python code by parsing them into ASTs and then
+    removing comments and annotations from each AST before comparing their
+    string representations. Returns True if the code blocks are identical and
+    False otherwise.
+
+    Args:
+        code1: A string containing the first block of code to compare.
+        code2: A string containing the second block of code to compare.
+
+    Returns:
+        A boolean indicating whether the two code blocks are identical.
+    """
     tree1 = ast.parse(code1)
     tree2 = ast.parse(code2)
     for node in ast.walk(tree1):
@@ -303,7 +321,16 @@ def find_code_start(code: str) -> int:
     '\n    Returns -1 if code block is not found.\n    '
 test = '\n```python\ndef abs(n):\n    # Check if integer is negative\n    if n < 0:\n        # Return the opposite sign of n (i.e., multiply n by -1)\n        return -n\n    else:\n        # Return n (which is already a positive integer or zero)\n        return n\n```\n'
 
-def extract_code_block(completion):
+def extract_code_block(completion: dict) -> str:
+    """
+    Extracts code block from the given completion dictionary.
+
+    Args:
+        completion (dict): Completion dictionary containing text and other data.
+
+    Returns:
+        str: Extracted code block from the completion dictionary.
+    """
     c = completion
     text = c['choices'][0]['message']['content']
     first_index = find_code_start(text)
@@ -315,6 +342,15 @@ def extract_code_block(completion):
     return code_block
 
 def validated(the_code: str, code_block: str) -> bool:
+    """Check if code block is valid using AST parsing and code comparison.
+
+    Args:
+        the_code: A string representing the original code.
+        code_block: A string representing the code block to validate.
+
+    Returns:
+        A boolean indicating whether the code block is valid or not.
+    """
     try:
         result_ast = ast.parse(code_block)
     except:
@@ -326,7 +362,7 @@ def validated(the_code: str, code_block: str) -> bool:
         return True
     return False
 
-async def commentate(filename: str, code: str, language: Optional[str]=None) -> str:
+async def commentate(filename: str, code: str, language: Optional[str]=None) -> Tuple[str, int]:
     """
     This function takes in a string of code and an optional language parameter. If language is specified,
     the function translates each docstring and comment in the code to the specified language and includes the 
@@ -341,7 +377,7 @@ async def commentate(filename: str, code: str, language: Optional[str]=None) -> 
                                 Defaults to None.
 
     Returns:
-        str: A string of the processed code.
+        str, int: A string of the processed code and the number of successfully commented functions.
     """
     if language:
         translate_text = f"Write each docstring and comment first in English, then add a newline and '---', and add the translation to {language}."
@@ -366,7 +402,8 @@ async def commentate(filename: str, code: str, language: Optional[str]=None) -> 
             if not code_block:
                 continue
             code = replace_function(code, func_name, code_block)
-    return code
+    global successful_comments
+    return (code, successful_comments)
 
 def api_key() -> str:
     """

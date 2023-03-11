@@ -16,7 +16,7 @@ async def do_it(file, api_key, language):
         print(f"Commentating {file}:")
         with open(file, 'r') as f:
             code = f.read()
-            result = await commentator.commentate(file, code, language)
+            (result, successes) = await commentator.commentate(file, code, language)
         if result:
             save_path = "backup"
             if not os.path.exists(save_path):
@@ -25,6 +25,10 @@ async def do_it(file, api_key, language):
                 f.write(code)
             with open(file, 'w') as f:
                 f.write(result)
+            if successes > 0:
+                print(f"Successfully commentated {successes} functions.")
+            else:
+                print("Unable to commentate any functions. See 'commentator.log'.")
         else:
             print(f"Failed to process {file}.")
     
