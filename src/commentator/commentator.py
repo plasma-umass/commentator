@@ -1,4 +1,4 @@
-import ast
+import ast_comments as ast
 import openai_async
 import asyncio
 import logging
@@ -109,7 +109,6 @@ def update_args(old_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef], 
     return old_function_ast
 test = '\ndef abs(n):\n    """ WUT """\n    # Check if integer is negative\n    if n < 0:\n        # Return the opposite sign of n (i.e., multiply n by -1)\n        return -n\n    else:\n        # Return n (which is already a positive integer or zero)\n        return n\n'
 test2 = '\ndef abs(n):\n    if n < 0:\n        return -n\n    else:\n        return n\n'
-import ast
 
 def remove_code_before_function(code: str) -> str:
     """
@@ -250,11 +249,6 @@ def extract_function_ast(program_str: str, function_name: str) -> Union[ast.Func
 
 def extract_function_source(program_str, function_name):
     return ast.unparse(extract_function_ast(program_str, function_name))
-    program_ast = ast.parse(program_str)
-    function_node = next((n for n in program_ast.body if isinstance(n, ast.FunctionDef) and n.name == function_name), None)
-    if function_node is None:
-        raise ValueError(f"No function named '{function_name}' was found")
-    return ast.unparse(function_node)
 
 def enumerate_functions(program_str: str) -> List[str]:
     """

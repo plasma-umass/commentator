@@ -3,7 +3,6 @@ import openai
 import click
 import glob
 import os
-import ast
 import tqdm
 
 # import commentator

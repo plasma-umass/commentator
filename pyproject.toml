@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-commentator"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
   { name="Emery Berger", email="emery.berger@gmail.com" },
 ]
-dependencies = ["openai>=0.27.0", "openai_async>=0.0.3", "tqdm>=4.64.0"]
+dependencies = ["openai>=0.27.0", "openai_async>=0.0.3", "tqdm>=4.64.0", "ast-comments>=1.0.0"]
 description = "An automatic commenter for Python code."
 readme = "README.md"
 requires-python = ">=3.7"
