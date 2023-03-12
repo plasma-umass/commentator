@@ -26,10 +26,8 @@ $ commentator --api-key <your-api-key> FILE1 ...
 
 Commentator takes a path to a Python file and an optional language
 parameter. If language is specified, Commentator translates each
-docstring and comment in the code to the specified language and
-includes the translated text in the output. If language is not
-specified, Commentator does not include any translations in the
-output.
+docstring and comment in the code to the specified language. The
+default language is English.
 
 
 ## Installation

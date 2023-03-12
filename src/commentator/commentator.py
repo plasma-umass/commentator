@@ -14,21 +14,8 @@ logging.info('Running commentator.')
 successful_comments = 0
 
 async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar) -> Optional[openai.api_resources.Completion]:
-    """
-    Rewrite the following `programming_language` code by adding high-level explanatory comments, PEP 257 docstrings, 
-    and PEP 484 style type annotations. Infer what each function does, using the names and computations as hints. 
-    If there are existing comments or types, augment them rather than replacing them. If the existing comments are 
-    inconsistent with the code, correct them. Every function argument and return value should be typed if possible. 
-    Do not change any other code. 
-    
-    :param programming_language: a string representing the programming language associated with the code to be 
-                                  commented
-    :param translate_text: a string representing the text to be translated
-    :param the_code: a string representing the code to be commented
-    :return: an optional completion object
-    """
     import httpx
-    content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments, PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
+    content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments as PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
     try:
         max_trials = 3
         for trial in range(max_trials):
@@ -426,7 +413,7 @@ async def commentate(filename: str, code: str, pbar, language: Optional[str]=Non
         str, int: A string of the processed code and the number of successfully commented functions.
     """
     if language:
-        translate_text = f"Write each docstring and comment first in English, then add a newline and '---', and add the translation to {language}."
+        translate_text = f"Write all comments in {language}."
     else:
         translate_text = ''
     programming_language = get_language_from_file_name(filename) + ' '
