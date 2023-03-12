@@ -408,7 +408,7 @@ def validated(the_code: str, code_block: str) -> bool:
         return True
     return False
 
-async def commentate(filename: str, code: str, language: Optional[str]=None) -> Tuple[str, int]:
+async def commentate(filename: str, code: str, pbar, language: Optional[str]=None) -> Tuple[str, int]:
     """
     This function takes in a string of code and an optional language parameter. If language is specified,
     the function translates each docstring and comment in the code to the specified language and includes the 
@@ -436,11 +436,12 @@ async def commentate(filename: str, code: str, language: Optional[str]=None) -> 
         if not (has_docstring(the_code) and has_types(the_code)):
             the_funcs.append(func_name)
     if len(the_funcs) == 0:
-        print(f'Skipping {filename}.')
+        assert False # We shouldn't run this code if this happens.
     else:
         from tqdm import tqdm
         num_items = len(the_funcs)
-        pbar = tqdm(total=num_items, desc=f'Commentating {filename}')
+        pbar.total=num_items
+        # pbar = tqdm(total=num_items, desc=)
         tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar) for f in the_funcs]
         results = await asyncio.gather(*tasks)
         code_blocks = results
