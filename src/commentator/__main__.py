@@ -18,12 +18,11 @@ async def do_one_file(index, file, language):
             function_count += 1
             
     from tqdm import tqdm
-    pbar = tqdm(total=1, dynamic_ncols=True, desc=file.name, leave=False, unit='function') # position=index, 
+    pbar = tqdm(total=1, desc=file.name, leave=False, unit='function') # position=index, 
     
     if function_count == 0:
-        pbar.total = 1
         pbar.update(1)
-        pbar.set_description(f'{file.name}: no functions need commentating.')
+        # pbar.set_description(f'{file.name}: no functions need commentating.')
         # pbar.update(1)
         return
 
