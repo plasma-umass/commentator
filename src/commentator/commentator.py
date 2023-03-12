@@ -13,6 +13,42 @@ logging.info('Running commentator.')
 
 successful_comments = 0
 
+from typing import Any, Dict, List, Tuple, Set, FrozenSet, DefaultDict, Deque
+import typing
+
+def generate_import(node):
+    """
+    Generate an import statement that imports from typing any types from
+    typing that were declared as annotations in the given AST node.
+    """
+    # Find all type annotations in the node
+    annotations = []
+    for n in ast.walk(node):
+        if isinstance(node, ast.AnnAssign):
+            annotations.append(arg.annotation)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for arg in node.args.args:
+                if arg.annotation:
+                    annotations.append(arg.annotation)
+            if node.returns:
+                annotations.append(node.returns)
+    
+    # Find all imported types from typing
+    typing_imports = set()
+    for annotation in annotations:
+        if isinstance(annotation, ast.Subscript):
+            for type_name, type_class in typing.__dict__.items():
+                if isinstance(annotation.value, ast.Name) and annotation.value.id == type_name and type_class in (List, Tuple, Set, FrozenSet, Dict, DefaultDict, Deque):
+                    typing_imports.add(type_name)
+        elif isinstance(annotation, ast.Name) and annotation.id in {'Any', 'Union'}:
+            typing_imports.add('Any')
+    
+    # Generate the import statement
+    if typing_imports:
+        return 'from typing import ' + ', '.join(sorted(typing_imports))
+    else:
+        return None
+
 async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar) -> Optional[openai.api_resources.Completion]:
     import httpx
     content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments as PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'

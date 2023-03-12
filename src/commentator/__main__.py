@@ -1,3 +1,4 @@
+import ast_comments as ast
 import asyncio
 import openai
 import click
@@ -32,6 +33,10 @@ async def do_one_file(index, file, language):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         with open(os.path.join(save_path, file.name), 'w') as f:
+            # Generate import statement first.
+            import_stmt = commentator.generate_import(ast.parse(code))
+            if import_stmt:
+                code = import_stmt + "\n" + code
             f.write(code)
         with open(file.name, 'w') as f:
             f.write(result)
