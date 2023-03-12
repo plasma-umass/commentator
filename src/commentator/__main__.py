@@ -62,6 +62,5 @@ def main(file, api_key, language):
     See https://github.com/emeryberger/commentator for more information.
     """
     asyncio.run(do_it(api_key, language, file))
-    print("Commentator complete.")
 
 main()

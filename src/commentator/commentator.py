@@ -266,7 +266,11 @@ def enumerate_functions(program_str: str) -> List[str]:
     Returns:
         A list of names of functions and async functions defined in the program.
     """
-    program_ast = ast.parse(program_str)
+    try:
+        program_ast = ast.parse(program_str)
+    except SyntaxError:
+        # Failed to parse.
+        return []
     names = [n.name for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
     return names
 
