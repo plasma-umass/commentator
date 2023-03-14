@@ -6,15 +6,19 @@ import openai
 import os
 import sys
 import tqdm
+
 from typing import cast, Optional, List, Set, Tuple, Union
+from typing import Any, Dict, List, Tuple, Set, FrozenSet, DefaultDict, Deque
+import typing
+
+from . import collect_types
+
 logname = 'commentator.log'
 logging.basicConfig(filename=logname, filemode='a', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.info('Running commentator.')
 
 successful_comments = 0
 
-from typing import Any, Dict, List, Tuple, Set, FrozenSet, DefaultDict, Deque
-import typing
 
 def generate_import(node):
     """
@@ -22,42 +26,31 @@ def generate_import(node):
     typing that were declared as annotations in the given AST node.
     """
     # Find all type annotations in the node
-    annotations = []
-    for n in ast.walk(node):
-        if isinstance(node, ast.AnnAssign):
-            annotations.append(arg.annotation)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for arg in node.args.args:
-                if arg.annotation:
-                    annotations.append(arg.annotation)
-            if node.returns:
-                annotations.append(node.returns)
-    
-    # Find all imported types from typing
+    typing_classes = ["List", "Tuple", "Set", "FrozenSet", "Dict", "DefaultDict", "Deque", "Any", "Union", "Optional", "cast"]
+    types_used = collect_types.collect_types(node)
     typing_imports = set()
-    for annotation in annotations:
-        if isinstance(annotation, ast.Subscript):
-            for type_name, type_class in typing.__dict__.items():
-                if isinstance(annotation.value, ast.Name) and annotation.value.id == type_name and type_class in (List, Tuple, Set, FrozenSet, Dict, DefaultDict, Deque):
-                    typing_imports.add(type_name)
-        elif isinstance(annotation, ast.Name) and annotation.id in {'Any', 'Union'}:
-            typing_imports.add('Any')
+    for t in types_used:
+        for c in typing_classes:
+            if t.startswith(c):
+                typing_imports.add(c)
+                break
     
     # Generate the import statement
     if typing_imports:
-        return 'from typing import ' + ', '.join(sorted(typing_imports))
+        return 'from typing import ' + ', '.join(sorted(list(typing_imports)))
     else:
-        return None
+        return ''
 
 async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar) -> Optional[openai.api_resources.Completion]:
     import httpx
-    content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments as PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
+    content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments as PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. Add comments throughout the function body. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
     try:
         max_trials = 3
         for trial in range(max_trials):
-            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
+            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
             code_block = extract_code_block(completion.json())
             if validated(the_code, code_block):
+                logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
                 global successful_comments
                 successful_comments += 1
                 # Splice in the types and the docstring from the generated function into the original function.
@@ -461,7 +454,7 @@ async def commentate(filename: str, code: str, pbar, language: Optional[str]=Non
     else:
         from tqdm import tqdm
         num_items = len(the_funcs)
-        pbar.total=num_items
+        pbar.total = num_items
         # pbar = tqdm(total=num_items, desc=)
         tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar) for f in the_funcs]
         results = await asyncio.gather(*tasks)
@@ -470,8 +463,13 @@ async def commentate(filename: str, code: str, pbar, language: Optional[str]=Non
             if not code_block:
                 continue
             code = replace_function(code, func_name, code_block)
+    import_stmt = generate_import(ast.parse(code))
+    if import_stmt:
+        code = import_stmt + '\n' + code
     global successful_comments
     return (code, successful_comments)
+
+# print(generate_import(ast.parse('x = 12\n\ndef whatever(n: float) -> Dict[str]:\n    """Creates a dictionary with a pre-defined key-value pair where key is \'X\' and value is 12.\nIf the input argument n is equal to 0.1234, then a new key-value pair is added to the dictionary \nwith key \'COOL\' and value 1.\n\n:param n: A float input value.\n:return: A dictionary containing key-value pairs."""\n    d = {\'X\': 12}\n    if n == 0.1234:\n        d[\'COOL\'] = 1\n    return d\n\ndef absolutely(n: int) -> Union[int, bool]:\n    """Return the absolute value of the input integer.\n\nArgs:\n    n (int): The input integer.\n\nReturns:\n    int: The absolute value of the input integer."""\n    if n < 0:\n        return -n\n    else:\n        return n\nprint(\'WOOT\')\n')))
 
 def api_key() -> str:
     """
