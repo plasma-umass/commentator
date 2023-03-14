@@ -1,6 +1,6 @@
 import ast_comments as ast
 
-class CommentStripper(ast.NodeTransformer):
+class StripComments(ast.NodeTransformer):
     def visit_Comment(self, node):
         return None
     def visit_FunctionDef(self, node):
@@ -15,6 +15,16 @@ class CommentStripper(ast.NodeTransformer):
         self.generic_visit(node)
         return node
     
+    
+class StripComments2(ast.NodeTransformer):
+    def visit(self, node):
+        # Remove comments from the code
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Str):
+            return None
+        return ast.NodeTransformer.visit(self, node)
+        
 def strip_comments(node):
-    return ast.fix_missing_locations(CommentStripper().visit(node))
+    sc = StripComments()
+    node = sc.visit(node)
+    return ast.unparse(ast.fix_missing_locations(node))
 

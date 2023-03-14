@@ -7,11 +7,12 @@ import os
 import sys
 import tqdm
 
-from typing import cast, Optional, List, Set, Tuple, Union
-from typing import Any, Dict, List, Tuple, Set, FrozenSet, DefaultDict, Deque
+from typing import Any, cast, Deque, DefaultDict, Dict, FrozenSet, List, Optional, Set, Tuple, Union
 import typing
 
 from . import collect_types
+from . import strip_comments
+from . import strip_types
 
 logname = 'commentator.log'
 logging.basicConfig(filename=logname, filemode='a', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
@@ -43,29 +44,42 @@ def generate_import(node):
 
 async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar) -> Optional[openai.api_resources.Completion]:
     import httpx
-    content = f'Rewrite the following {programming_language}code by adding high-level explanatory comments as PEP 257 docstrings, and PEP 484 style type annotations. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. Add comments throughout the function body. If the existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed if possible. Do not change any other code. {translate_text} {the_code}'
+    content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
     try:
         max_trials = 3
         for trial in range(max_trials):
             completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
             code_block = extract_code_block(completion.json())
+            logging.info(f'PROCESSING {code_block}')
             if validated(the_code, code_block):
                 logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
                 global successful_comments
                 successful_comments += 1
-                # Splice in the types and the docstring from the generated function into the original function.
+                # If the commented version is equivalent to the uncommented version, use it.
                 the_code_ast = ast.parse(the_code)
                 code_block_ast = ast.parse(code_block)
-                for node in ast.walk(the_code_ast):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        tca = node
-                        break
-                for node in ast.walk(code_block_ast):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        cba = node
-                        break
-                replace_function_annotations(tca, cba)
-                code_block = ast.unparse(tca)
+                stripped_the_code = strip_comments.strip_comments(the_code_ast)
+                stripped_the_code = strip_types.strip_types(ast.parse(stripped_the_code))
+                stripped_code_block = strip_comments.strip_comments(code_block_ast)
+                stripped_code_block = strip_types.strip_types(ast.parse(stripped_code_block))
+                if stripped_the_code == stripped_code_block:
+                    logging.info(f"COMMENTS EQUAL WUT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    pass
+                else:
+                    logging.info(f"COMMENTS NOT EQUAL WUT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    # Otherwise, just splice in the types and the
+                    # docstring from the generated function into the
+                    # original function.
+                    for node in ast.walk(the_code_ast):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            tca = node
+                            break
+                    for node in ast.walk(code_block_ast):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            cba = node
+                            break
+                    replace_function_annotations(tca, cba)
+                    code_block = ast.unparse(tca)
                 break
             else:
                 logging.info(f'Failed to validate:\n-----\n{code_block}\n-----')
@@ -77,6 +91,9 @@ async def get_comments(programming_language: str, func_name: str, translate_text
         import sys
         sys.exit(1)
     except Exception as e:
+        print("OH SNAP", e)
+        import traceback
+        print(traceback.format_exc())
         pbar.update(1)
         return ''
     pbar.update(1)

@@ -49,4 +49,4 @@ class TypeStripper(ast.NodeTransformer):
         return node
 
 def strip_types(node):
-    return ast.fix_missing_locations(TypeStripper().visit(node))
+    return ast.unparse(ast.fix_missing_locations(TypeStripper().visit(node)))
