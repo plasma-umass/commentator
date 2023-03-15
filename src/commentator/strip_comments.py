@@ -14,14 +14,6 @@ class StripComments(ast.NodeTransformer):
             node.body.pop(0)
         self.generic_visit(node)
         return node
-    
-    
-class StripComments2(ast.NodeTransformer):
-    def visit(self, node):
-        # Remove comments from the code
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Str):
-            return None
-        return ast.NodeTransformer.visit(self, node)
         
 def strip_comments(node):
     sc = StripComments()
