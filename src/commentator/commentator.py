@@ -91,9 +91,9 @@ async def get_comments(programming_language: str, func_name: str, translate_text
         import sys
         sys.exit(1)
     except Exception as e:
-        print("OH SNAP", e)
-        import traceback
-        print(traceback.format_exc())
+        #print("OH SNAP", e)
+        #import traceback
+        #print(traceback.format_exc())
         pbar.update(1)
         return ''
     pbar.update(1)
