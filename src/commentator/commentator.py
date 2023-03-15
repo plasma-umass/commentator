@@ -12,6 +12,7 @@ import typing
 
 from . import collect_types
 from . import strip_comments
+from . import strip_imports
 from . import strip_types
 
 logname = 'commentator.log'
@@ -60,8 +61,10 @@ async def get_comments(programming_language: str, func_name: str, translate_text
                 code_block_ast = ast.parse(code_block)
                 stripped_the_code = strip_comments.strip_comments(the_code_ast)
                 stripped_the_code = strip_types.strip_types(ast.parse(stripped_the_code))
+                stripped_the_code = strip_imports.strip_imports(ast.parse(stripped_the_code))
                 stripped_code_block = strip_comments.strip_comments(code_block_ast)
                 stripped_code_block = strip_types.strip_types(ast.parse(stripped_code_block))
+                stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
                 if stripped_the_code == stripped_code_block:
                     logging.info(f"COMMENTS EQUAL WUT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
                     pass
