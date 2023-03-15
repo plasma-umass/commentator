@@ -56,22 +56,26 @@ Run Commentator on this file to add comments and type annotations:
 $ commentator example.py
 ```
 
-The resulting code will be:
+The resulting code might be:
 
 ```
-def absolutely(n: int):
+def absolutely(n: int) -> int:
     """
-    Return the absolute value of an integer.
+    Return the absolute value of a number.
     
     Args:
-    n(int): Integer number.
+    - n (int): the number whose absolute value we want to find
     
     Returns:
-    An absolute integer value of the input.
+    - int: the absolute value of n
     """
     if n < 0:
+        # If n is negative
+        # Return the negative version of n (i.e. its absolute value)
         return -n
     else:
+        # Otherwise (if n is non-negative)
+        # Return n as-is (it already is its absolute value)
         return n
 ```
 
