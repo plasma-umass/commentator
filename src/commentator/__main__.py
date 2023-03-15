@@ -71,7 +71,7 @@ def print_version(ctx, param, value):
 @click.option('--language', help="Optionally adds translations in the (human) language of your choice.", required=False, default=None)
 @click.option('--version', is_flag=True, callback=print_version,
               expose_value=False, is_eager=True)
-def main(file, api_key, language, version):
+def main(file, api_key, language):
     """Automatically adds comments to your code.
 
     See https://github.com/emeryberger/commentator for more information.
