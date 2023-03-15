@@ -57,12 +57,21 @@ async def do_it(api_key, language, *files):
     file_list = list(*files)
     tasks = [do_one_file(index, file, language) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
-    
+
+def print_version(ctx, param, value):
+    import importlib.metadata
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(f"commentator version {importlib.metadata.metadata('python-commentator')['Version']}")
+    ctx.exit(0)
+
 @click.command()
 @click.argument('file', nargs=-1, type=click.File('r'))
 @click.option('--api-key', help="OpenAI key.", default=commentator.api_key(), required=False)
 @click.option('--language', help="Optionally adds translations in the (human) language of your choice.", required=False, default=None)
-def main(file, api_key, language):
+@click.option('--version', is_flag=True, callback=print_version,
+              expose_value=False, is_eager=True)
+def main(file, api_key, language, version):
     """Automatically adds comments to your code.
 
     See https://github.com/emeryberger/commentator for more information.
