@@ -7,7 +7,9 @@ class StripComments(ast.NodeTransformer):
         return self.process_function(node)
     def visit_AsyncFunctionDef(self, node):
         return self.process_function(node)
-    
+    def visit_ClassDef(self, node):
+        return self.process_function(node)
+        
     def process_function(self, node):
         # Remove the docstring if it exists
         if isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
