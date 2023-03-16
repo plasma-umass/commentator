@@ -35,7 +35,6 @@ def generate_import(node):
         for c in typing_classes:
             if t.startswith(c):
                 typing_imports.add(c)
-                break
     
     # Generate the import statement
     if typing_imports:
