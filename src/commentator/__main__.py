@@ -120,9 +120,9 @@ def do_strip_comments(files):
 @click.command()
 @click.argument('file', nargs=-1, type=click.File('r'))
 @click.option('--api-key', help="OpenAI key.", default=commentator.api_key(), required=False)
-@click.option('--language', help="Optionally adds translations in the (human) language of your choice.", required=False, default=None)
+@click.option('--language', help="Write all comments in the (human) language of your choice (default=English).", required=False, default=None)
 @click.option('--version', is_flag=True, callback=print_version,
-              expose_value=False, is_eager=True)
+              expose_value=False, is_eager=True, help="Print the current version number and exit.")
 @click.option('--strip-types/--no-strip-types', default=False, help="Just strip existing types and exit.")
 @click.option('--strip-comments/--no-strip-comments', default=False, help="Just strip existing comments and exit.")
 def main(file, api_key, language, strip_types, strip_comments):
