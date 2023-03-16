@@ -45,8 +45,9 @@ class TypeStripper(ast.NodeTransformer):
         return node
     
     def visit_AnnAssign(self, node):
-        node.annotation = None
-        return node
+        if node.simple or not node.value:
+            return None
+        return ast.Assign([node.target], value)
 
 def strip_types(node):
     return ast.unparse(ast.fix_missing_locations(TypeStripper().visit(node)))
