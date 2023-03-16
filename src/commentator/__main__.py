@@ -8,8 +8,10 @@ import tqdm
 
 # import commentator
 from . import commentator
+from . import strip_comments
+from . import strip_types
 
-async def do_one_file(index, file, language):
+async def commentate_one_file(index, file, language):
     code = file.read()
     try:
         ast.parse(code)
@@ -55,7 +57,7 @@ async def do_one_file(index, file, language):
 async def do_it(api_key, language, *files):
     openai.api_key = api_key
     file_list = list(*files)
-    tasks = [do_one_file(index, file, language) for (index, file) in enumerate(file_list)]
+    tasks = [commentate_one_file(index, file, language) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
 def print_version(ctx, param, value):
@@ -65,17 +67,75 @@ def print_version(ctx, param, value):
     click.echo(f"commentator version {importlib.metadata.metadata('python-commentator')['Version']}")
     ctx.exit(0)
 
+async def func_one_file(index, file, func):
+    with open(file.name, 'r') as f:
+        code = f.read()
+    try:
+        the_ast = ast.parse(code)
+    except SyntaxError:
+        # Failed to parse.
+        return
+        
+    function_count = len(commentator.enumerate_functions(code))
+    if function_count == 0:
+        return
+
+    from tqdm import tqdm
+    pbar = tqdm(total=function_count, desc=file.name, leave=False, unit='function') # position=index,
+
+    result = func(the_ast)
+    if result:
+        save_path = "backup"
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        with open(os.path.join(save_path, file.name), 'w') as f:
+            f.write(code)
+        with open(file.name, 'w') as f:
+            f.write(result)
+    else:
+        pass
+
+async def strip_types_one_file(index, file):
+    await func_one_file(index, file, strip_types.strip_types)
+
+async def strip_comments_one_file(index, file):
+    await func_one_file(index, file, strip_comments.strip_comments)
+    
+async def strip_types_helper(*files):
+    file_list = list(*files)
+    tasks = [strip_types_one_file(index, file) for (index, file) in enumerate(file_list)]
+    await asyncio.gather(*tasks)
+
+def do_strip_types(files):
+    asyncio.run(strip_types_helper(files))
+
+async def strip_comments_helper(*files):
+    file_list = list(*files)
+    tasks = [strip_comments_one_file(index, file) for (index, file) in enumerate(file_list)]
+    await asyncio.gather(*tasks)
+
+def do_strip_comments(files):
+    asyncio.run(strip_comments_helper(files))
+    
 @click.command()
 @click.argument('file', nargs=-1, type=click.File('r'))
 @click.option('--api-key', help="OpenAI key.", default=commentator.api_key(), required=False)
 @click.option('--language', help="Optionally adds translations in the (human) language of your choice.", required=False, default=None)
 @click.option('--version', is_flag=True, callback=print_version,
               expose_value=False, is_eager=True)
-def main(file, api_key, language):
+@click.option('--strip-types/--no-strip-types', default=False, help="Just strip existing types and exit.")
+@click.option('--strip-comments/--no-strip-comments', default=False, help="Just strip existing comments and exit.")
+def main(file, api_key, language, strip_types, strip_comments):
     """Automatically adds comments to your code.
 
     See https://github.com/emeryberger/commentator for more information.
     """
+    if strip_types:
+        do_strip_types(file)
+    if strip_comments:
+        do_strip_comments(file)
+    if strip_types or strip_comments:
+        return
     asyncio.run(do_it(api_key, language, file))
 
 main()
