@@ -28,7 +28,7 @@ def generate_import(node):
     typing that were declared as annotations in the given AST node.
     """
     # Find all type annotations in the node
-    typing_classes = ["List", "Tuple", "Set", "FrozenSet", "Callable", "Dict", "DefaultDict", "Deque", "Any", "Union", "Optional", "cast"]
+    typing_classes = ["List", "Tuple", "Set", "FrozenSet", "Callable", "Dict", "DefaultDict", "Deque", "Any", "TextIO", "Union", "Optional", "cast"]
     types_used = collect_types.collect_types(node)
     typing_imports = set()
     for t in types_used:
