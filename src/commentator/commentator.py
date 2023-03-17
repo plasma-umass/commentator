@@ -28,7 +28,7 @@ def generate_import(node):
     typing that were declared as annotations in the given AST node.
     """
     # Find all type annotations in the node
-    typing_classes = ["List", "Tuple", "Set", "FrozenSet", "Dict", "DefaultDict", "Deque", "Any", "Union", "Optional", "cast"]
+    typing_classes = ["List", "Tuple", "Set", "FrozenSet", "Callable", "Dict", "DefaultDict", "Deque", "Any", "Union", "Optional", "cast"]
     types_used = collect_types.collect_types(node)
     typing_imports = set()
     for t in types_used:
@@ -466,8 +466,9 @@ async def commentate(filename: str, code: str, pbar, language: Optional[str]=Non
     the_funcs = []
     for func_name in enumerate_functions(code):
         the_code = extract_function_source(code, func_name)
-        if not (has_docstring(the_code) and has_types(the_code)):
-            the_funcs.append(func_name)
+        #if not (has_docstring(the_code) and has_types(the_code)):
+        #    the_funcs.append(func_name)
+        the_funcs.append(func_name)
     if len(the_funcs) == 0:
         assert False # We shouldn't run this code if this happens.
     else:
