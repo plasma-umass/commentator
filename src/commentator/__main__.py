@@ -4,14 +4,18 @@ import openai
 import click
 import glob
 import os
-import tqdm
+import rich
+import time
+# import tqdm
+
+from rich.progress import Progress
 
 # import commentator
 from . import commentator
 from . import strip_comments
 from . import strip_types
 
-async def commentate_one_file(index, file, language):
+async def commentate_one_file(index, file, language, progress):
     code = file.read()
     try:
         ast.parse(code)
@@ -22,16 +26,17 @@ async def commentate_one_file(index, file, language):
     function_count = 0
     for func_name in commentator.enumerate_functions(code):
         the_code = commentator.extract_function_source(code, func_name)
-        if not (commentator.has_docstring(the_code) and commentator.has_types(the_code)):
-            function_count += 1
+        #if not (commentator.has_docstring(the_code) and commentator.has_types(the_code)):
+        function_count += 1
             
     if function_count == 0:
         return
 
-    from tqdm import tqdm
-    pbar = tqdm(total=function_count, desc=file.name, leave=False, unit='function') # position=index,
+    # from tqdm import tqdm
+    pbar = progress.add_task(f"{file.name}", total=function_count)
+    # pbar = tqdm(total=function_count, desc=file.name, leave=False, unit='function') # position=index,
     
-    (result, successes) = await commentator.commentate(file.name, code, pbar, language)
+    (result, successes) = await commentator.commentate(file.name, code, pbar, progress, language)
     if result:
         save_path = "backup"
         if not os.path.exists(save_path):
@@ -54,10 +59,10 @@ async def commentate_one_file(index, file, language):
         pass
         #print(f"Failed to process {file.name}.")
     
-async def do_it(api_key, language, *files):
+async def do_it(api_key, language, progress, *files):
     openai.api_key = api_key
     file_list = list(*files)
-    tasks = [commentate_one_file(index, file, language) for (index, file) in enumerate(file_list)]
+    tasks = [commentate_one_file(index, file, language, progress) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
 def print_version(ctx, param, value):
@@ -80,8 +85,9 @@ async def func_one_file(index, file, func):
     if function_count == 0:
         return
 
-    from tqdm import tqdm
-    pbar = tqdm(total=function_count, desc=file.name, leave=False, unit='function') # position=index,
+    # from tqdm import tqdm
+    pbar = progress.add_task(f"{file.name}", total=function_count)
+    # pbar = tqdm(total=function_count, desc=file.name, leave=False, unit='function') # position=index,
 
     result = func(the_ast)
     if result:
@@ -95,27 +101,27 @@ async def func_one_file(index, file, func):
     else:
         pass
 
-async def strip_types_one_file(index, file):
-    await func_one_file(index, file, strip_types.strip_types)
+async def strip_types_one_file(index, file, progress):
+    await func_one_file(index, file, progress, strip_types.strip_types)
 
 async def strip_comments_one_file(index, file):
-    await func_one_file(index, file, strip_comments.strip_comments)
+    await func_one_file(index, file, progress, strip_comments.strip_comments)
     
-async def strip_types_helper(*files):
+async def strip_types_helper(progress, *files):
     file_list = list(*files)
-    tasks = [strip_types_one_file(index, file) for (index, file) in enumerate(file_list)]
+    tasks = [strip_types_one_file(index, file, progress) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
-def do_strip_types(files):
-    asyncio.run(strip_types_helper(files))
+def do_strip_types(files, progress):
+    asyncio.run(strip_types_helper(progress, files))
 
-async def strip_comments_helper(*files):
+async def strip_comments_helper(progress, *files):
     file_list = list(*files)
-    tasks = [strip_comments_one_file(index, file) for (index, file) in enumerate(file_list)]
+    tasks = [strip_comments_one_file(index, file, progress) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
-def do_strip_comments(files):
-    asyncio.run(strip_comments_helper(files))
+def do_strip_comments(files, progress):
+    asyncio.run(strip_comments_helper(progress, files))
     
 @click.command()
 @click.argument('file', nargs=-1, type=click.File('r'))
@@ -130,12 +136,13 @@ def main(file, api_key, language, strip_types, strip_comments):
 
     See https://github.com/emeryberger/commentator for more information.
     """
-    if strip_types:
-        do_strip_types(file)
-    if strip_comments:
-        do_strip_comments(file)
-    if strip_types or strip_comments:
-        return
-    asyncio.run(do_it(api_key, language, file))
+    with Progress() as progress:
+        if strip_types:
+            do_strip_types(progress, file)
+        if strip_comments:
+            do_strip_comments(progress, file)
+        if strip_types or strip_comments:
+            return
+        asyncio.run(do_it(api_key, language, progress, file))
 
 main()

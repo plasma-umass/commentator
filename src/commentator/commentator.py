@@ -5,7 +5,8 @@ import logging
 import openai
 import os
 import sys
-import tqdm
+
+from rich.progress import Progress
 
 from typing import Any, cast, Deque, DefaultDict, Dict, FrozenSet, List, Optional, Set, Tuple, Union
 import typing
@@ -16,7 +17,7 @@ from . import strip_imports
 from . import strip_types
 
 logname = 'commentator.log'
-logging.basicConfig(filename=logname, filemode='a', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+logging.basicConfig(filename=logname, filemode='w', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.info('Running commentator.')
 
 successful_comments = 0
@@ -42,7 +43,7 @@ def generate_import(node):
     else:
         return ''
 
-async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar) -> Optional[openai.api_resources.Completion]:
+async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar, progress) -> Optional[openai.api_resources.Completion]:
     import httpx
     content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
     try:
@@ -65,10 +66,10 @@ async def get_comments(programming_language: str, func_name: str, translate_text
                 stripped_code_block = strip_types.strip_types(ast.parse(stripped_code_block))
                 stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
                 if stripped_the_code == stripped_code_block:
-                    logging.info(f"COMMENTS EQUAL WUT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    logging.info(f"COMMENTS EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
                     pass
                 else:
-                    logging.info(f"COMMENTS NOT EQUAL WUT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    logging.info(f"COMMENTS NOT EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
                     # Otherwise, just splice in the types and the
                     # docstring from the generated function into the
                     # original function.
@@ -93,12 +94,8 @@ async def get_comments(programming_language: str, func_name: str, translate_text
         import sys
         sys.exit(1)
     except Exception as e:
-        #print("OH SNAP", e)
-        #import traceback
-        #print(traceback.format_exc())
-        pbar.update(1)
         return ''
-    pbar.update(1)
+    progress.update(pbar, advance=1)
     return code_block
 
 def replace_function_annotations(target, source):
@@ -441,7 +438,7 @@ def validated(the_code: str, code_block: str) -> bool:
         return True
     return False
 
-async def commentate(filename: str, code: str, pbar, language: Optional[str]=None) -> Tuple[str, int]:
+async def commentate(filename: str, code: str, pbar, progress, language: Optional[str]=None) -> Tuple[str, int]:
     """
     This function takes in a string of code and an optional language parameter. If language is specified,
     the function translates each docstring and comment in the code to the specified language and includes the 
@@ -466,17 +463,17 @@ async def commentate(filename: str, code: str, pbar, language: Optional[str]=Non
     the_funcs = []
     for func_name in enumerate_functions(code):
         the_code = extract_function_source(code, func_name)
-        #if not (has_docstring(the_code) and has_types(the_code)):
-        #    the_funcs.append(func_name)
-        the_funcs.append(func_name)
+        # Only try to process code without docstrings or type annotations.
+        if not (has_docstring(the_code) and has_types(the_code)):
+            the_funcs.append(func_name)
     if len(the_funcs) == 0:
-        assert False # We shouldn't run this code if this happens.
+        return (code, 0)
     else:
-        from tqdm import tqdm
+        # from tqdm import tqdm
         num_items = len(the_funcs)
-        pbar.total = num_items
+        # pbar.total = num_items
         # pbar = tqdm(total=num_items, desc=)
-        tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar) for f in the_funcs]
+        tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar, progress) for f in the_funcs]
         results = await asyncio.gather(*tasks)
         code_blocks = results
         for func_name, code_block in zip(the_funcs, code_blocks):
