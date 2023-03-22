@@ -23,5 +23,5 @@ commentator = "commentator.__main__:main"
 
 
 [project.urls]
-"Homepage" = "https://github.com/emeryberger/commentator"
-"Bug Tracker" = "https://github.com/emeryberger/commentator"
+"Homepage" = "https://github.com/plasma-umass/commentator"
+"Bug Tracker" = "https://github.com/plasma-umass/commentator"
