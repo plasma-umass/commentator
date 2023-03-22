@@ -1,5 +1,7 @@
 # Commentator
 
+by [Emery Berger](https://emeryberger.com)
+
 Commentator is a Python program that generates comments and optional
 translations for Python code. It uses OpenAI's GPT-3 language model to
 add high-level explanatory comments and docstrings to Python code.
