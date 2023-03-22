@@ -38,9 +38,8 @@ async def commentate_one_file(index, file, language, progress):
     
     (result, successes) = await commentator.commentate(file.name, code, pbar, progress, language)
     if result:
-        save_path = "backup"
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        save_path = os.path.join(os.getcwd(), "backup")
+        os.makedirs(os.path.dirname(os.path.join(save_path, file.name)), exist_ok=True)
         with open(os.path.join(save_path, file.name), 'w') as f:
             # Generate import statement first.
             import_stmt = commentator.generate_import(ast.parse(code))
@@ -91,9 +90,8 @@ async def func_one_file(index, file, func):
 
     result = func(the_ast)
     if result:
-        save_path = "backup"
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        save_path = os.path.join(os.getcwd(), "backup")
+        os.makedirs(os.path.dirname(os.path.join(save_path, file.name)), exist_ok=True)
         with open(os.path.join(save_path, file.name), 'w') as f:
             f.write(code)
         with open(file.name, 'w') as f:
