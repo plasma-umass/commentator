@@ -73,7 +73,7 @@ def print_version(ctx, param, value):
     click.echo(f"commentator version {importlib.metadata.metadata('python-commentator')['Version']}")
     ctx.exit(0)
 
-async def func_one_file(index, file, func):
+async def func_one_file(index, file, progress, func):
     with open(file.name, 'r') as f:
         code = f.read()
     try:
@@ -104,7 +104,7 @@ async def func_one_file(index, file, func):
 async def strip_types_one_file(index, file, progress):
     await func_one_file(index, file, progress, strip_types.strip_types)
 
-async def strip_comments_one_file(index, file):
+async def strip_comments_one_file(index, file, progress):
     await func_one_file(index, file, progress, strip_comments.strip_comments)
     
 async def strip_types_helper(progress, *files):
@@ -112,7 +112,7 @@ async def strip_types_helper(progress, *files):
     tasks = [strip_types_one_file(index, file, progress) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
-def do_strip_types(files, progress):
+def do_strip_types(progress, files):
     asyncio.run(strip_types_helper(progress, files))
 
 async def strip_comments_helper(progress, *files):
@@ -120,7 +120,7 @@ async def strip_comments_helper(progress, *files):
     tasks = [strip_comments_one_file(index, file, progress) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
-def do_strip_comments(files, progress):
+def do_strip_comments(progress, files):
     asyncio.run(strip_comments_helper(progress, files))
     
 @click.command()
