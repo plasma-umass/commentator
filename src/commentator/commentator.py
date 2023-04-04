@@ -6,6 +6,7 @@ import openai
 import os
 import sys
 
+from collections import deque
 from rich.progress import Progress
 
 from typing import Any, cast, Deque, DefaultDict, Dict, FrozenSet, List, Optional, Set, Tuple, Union
@@ -43,14 +44,27 @@ def generate_import(node):
     else:
         return ''
 
-async def get_comments(programming_language: str, func_name: str, translate_text: str, the_code: str, pbar, progress) -> Optional[openai.api_resources.Completion]:
+async def get_comments(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Optional[openai.api_resources.Completion]:
     import httpx
-    content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+    if "Python" in programming_language:
+        if check:
+            content = f'Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}'
+        else:
+            content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+    elif programming_language == "C" or programming_language == "C++":
+        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
+    else:
+        content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
     try:
         max_trials = 3
         for trial in range(max_trials):
             completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
             code_block = extract_code_block(completion.json())
+            if check:
+                if "INCONSISTENT" in code_block:
+                    print(f"inconsistency found:\n{code_block}")
+                break
+                
             logging.info(f'PROCESSING {code_block}')
             if validated(the_code, code_block):
                 logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
@@ -272,6 +286,32 @@ def now_has_types(code1, code2):
         remove_annotations(node)
     return ast.unparse(tree1) != ast.unparse(tree2)
 
+class ExtractFunction(ast.NodeVisitor):
+    def __init__(self, name):
+        self.names = []
+        self.current_class = deque()
+        self.name = name
+        self.the_function = None
+
+    def visit_ClassDef(self, node):
+        self.current_class.appendleft(node.name)
+        self.generic_visit(node)
+        self.current_class.popleft()
+        
+    def visit_FunctionDef(self, node):
+        if not self.the_function:
+            self.process_function(node)
+    def visit_AsyncFunctionDef(self, node):
+        if not self.the_function:
+            self.process_function(node)
+    def process_function(self, node):
+        if len(self.current_class) > 0:
+            name = self.current_class[0] + '.' + node.name
+        else:
+            name = node.name
+        if self.name == name:
+            self.the_function = node
+        
 def extract_function_ast(program_str: str, function_name: str) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
     """
     Extract the abstract syntax tree (AST) for a function with a given name from a given program string.
@@ -287,7 +327,10 @@ def extract_function_ast(program_str: str, function_name: str) -> Union[ast.Func
         ValueError: If no function with the given name is found in the AST.
     """
     program_ast = ast.parse(program_str)
-    function_node = next((n for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == function_name), None)
+    xf = ExtractFunction(function_name)
+    xf.visit(program_ast)
+    function_node = xf.the_function
+    # function_node = next((n for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == function_name), None)
     if function_node is None:
         raise ValueError(f"No function named '{function_name}' was found")
     return function_node
@@ -295,6 +338,31 @@ def extract_function_ast(program_str: str, function_name: str) -> Union[ast.Func
 def extract_function_source(program_str, function_name):
     return ast.unparse(extract_function_ast(program_str, function_name))
 
+
+class EnumerateFunctions(ast.NodeVisitor):
+    def __init__(self):
+        self.names = []
+        self.current_class = deque()
+
+    def visit_ClassDef(self, node):
+        self.current_class.appendleft(node.name)
+        self.generic_visit(node)
+        self.current_class.popleft()
+        
+    def visit_FunctionDef(self, node):
+        self.process_function(node)
+    def visit_AsyncFunctionDef(self, node):
+        self.process_function(node)
+        
+    def process_function(self, node):
+        if len(self.current_class) > 0:
+            name = self.current_class[0] + '.' + node.name
+        else:
+            name = node.name
+        self.names.append(name)
+        self.generic_visit(node)
+        
+    
 def enumerate_functions(program_str: str) -> List[str]:
     """
     Returns a list of names of functions and async functions defined in a given Python program string.
@@ -310,8 +378,12 @@ def enumerate_functions(program_str: str) -> List[str]:
     except SyntaxError:
         # Failed to parse.
         return []
-    names = [n.name for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    return names
+    ef = EnumerateFunctions()
+    ef.visit(program_ast)
+    return ef.names
+#    
+#    names = [n.name for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+#    return names
 
 def replace_function(program_str: str, function_name: str, new_function_str: str) -> str:
     """Replace a function within a Python program with a new function.
@@ -325,7 +397,9 @@ def replace_function(program_str: str, function_name: str, new_function_str: str
         A string representing the modified Python program.
     """
     program_ast = ast.parse(program_str)
-    function_node = next((n for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == function_name), None)
+    xf = ExtractFunction(function_name)
+    xf.visit(program_ast)
+    function_node = xf.the_function
     if function_node is None:
         raise ValueError(f"No function named '{function_name}' was found")
     new_function_ast = extract_function_ast(new_function_str, function_name)
@@ -438,7 +512,7 @@ def validated(the_code: str, code_block: str) -> bool:
         return True
     return False
 
-async def commentate(filename: str, code: str, pbar, progress, language: Optional[str]=None) -> Tuple[str, int]:
+async def commentate(filename: str, check: bool, code: str, pbar, progress, language: Optional[str]=None) -> Tuple[str, int]:
     """
     This function takes in a string of code and an optional language parameter. If language is specified,
     the function translates each docstring and comment in the code to the specified language and includes the 
@@ -463,8 +537,8 @@ async def commentate(filename: str, code: str, pbar, progress, language: Optiona
     the_funcs = []
     for func_name in enumerate_functions(code):
         the_code = extract_function_source(code, func_name)
-        # Only try to process code without docstrings or type annotations.
-        if not (has_docstring(the_code) and has_types(the_code)):
+        # Only try to process code without docstrings or type annotations (unless checking).
+        if check or not (has_docstring(the_code) and has_types(the_code)):
             the_funcs.append(func_name)
     if len(the_funcs) == 0:
         return (code, 0)
@@ -473,13 +547,14 @@ async def commentate(filename: str, code: str, pbar, progress, language: Optiona
         num_items = len(the_funcs)
         # pbar.total = num_items
         # pbar = tqdm(total=num_items, desc=)
-        tasks = [get_comments(programming_language, f, translate_text, extract_function_source(code, f), pbar, progress) for f in the_funcs]
+        tasks = [get_comments(programming_language, f, check, translate_text, extract_function_source(code, f), pbar, progress) for f in the_funcs]
         results = await asyncio.gather(*tasks)
         code_blocks = results
         for func_name, code_block in zip(the_funcs, code_blocks):
             if not code_block:
                 continue
-            code = replace_function(code, func_name, code_block)
+            if not check:
+                code = replace_function(code, func_name, code_block)
     import_stmt = generate_import(ast.parse(code))
     if import_stmt:
         code = import_stmt + '\n' + code

@@ -15,14 +15,16 @@ from . import commentator
 from . import strip_comments
 from . import strip_types
 
-async def commentate_one_file(index, file, language, progress):
+async def commentate_one_file(index, file, check, language, progress):
     code = file.read()
-    try:
-        ast.parse(code)
-    except SyntaxError:
-        # Failed to parse.
-        return
-        
+
+    if language == "Python":
+        try:
+            ast.parse(code)
+        except SyntaxError:
+            # Failed to parse.
+            return
+
     function_count = 0
     for func_name in commentator.enumerate_functions(code):
         the_code = commentator.extract_function_source(code, func_name)
@@ -36,8 +38,8 @@ async def commentate_one_file(index, file, language, progress):
     pbar = progress.add_task(f"{file.name}", total=function_count)
     # pbar = tqdm(total=function_count, desc=file.name, leave=False, unit='function') # position=index,
     
-    (result, successes) = await commentator.commentate(file.name, code, pbar, progress, language)
-    if result:
+    (result, successes) = await commentator.commentate(file.name, check, code, pbar, progress, language)
+    if result and not check:
         save_path = os.path.join(os.getcwd(), "backup")
         os.makedirs(os.path.dirname(os.path.join(save_path, file.name)), exist_ok=True)
         with open(os.path.join(save_path, file.name), 'w') as f:
@@ -58,10 +60,10 @@ async def commentate_one_file(index, file, language, progress):
         pass
         #print(f"Failed to process {file.name}.")
     
-async def do_it(api_key, language, progress, *files):
+async def do_it(api_key, check, language, progress, *files):
     openai.api_key = api_key
     file_list = list(*files)
-    tasks = [commentate_one_file(index, file, language, progress) for (index, file) in enumerate(file_list)]
+    tasks = [commentate_one_file(index, file, check, language, progress) for (index, file) in enumerate(file_list)]
     await asyncio.gather(*tasks)
 
 def print_version(ctx, param, value):
@@ -124,12 +126,13 @@ def do_strip_comments(files, progress):
 @click.command()
 @click.argument('file', nargs=-1, type=click.File('r'))
 @click.option('--api-key', help="OpenAI key.", default=commentator.api_key(), required=False)
+@click.option('--check', is_flag=True, help="Instead of adding comments, check for inconsistencies between the code and comments.", required=False, default=False)
 @click.option('--language', help="Write all comments in the (human) language of your choice (default=English).", required=False, default=None)
 @click.option('--version', is_flag=True, callback=print_version,
               expose_value=False, is_eager=True, help="Print the current version number and exit.")
 @click.option('--strip-types/--no-strip-types', default=False, help="Just strip existing types and exit.")
 @click.option('--strip-comments/--no-strip-comments', default=False, help="Just strip existing comments and exit.")
-def main(file, api_key, language, strip_types, strip_comments):
+def main(file, api_key, check, language, strip_types, strip_comments):
     """Automatically adds comments to your code.
 
     See https://github.com/emeryberger/commentator for more information.
@@ -141,6 +144,6 @@ def main(file, api_key, language, strip_types, strip_comments):
             do_strip_comments(progress, file)
         if strip_types or strip_comments:
             return
-        asyncio.run(do_it(api_key, language, progress, file))
+        asyncio.run(do_it(api_key, check, language, progress, file))
 
 main()
