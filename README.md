@@ -2,9 +2,8 @@
 
 by [Emery Berger](https://emeryberger.com)
 
-Commentator is a Python program that generates comments and optional
-translations for Python code. It uses OpenAI's GPT-3 language model to
-add high-level explanatory comments and docstrings to Python code.
+Commentator uses OpenAI's GPT-3 language model to add high-level
+explanatory comments, docstrings, *and types* to Python code.
 
 [![PyPI Latest Release](https://img.shields.io/pypi/v/python-commentator.svg)](https://pypi.org/project/python-commentator/)[![Downloads](https://pepy.tech/badge/python-commentator)](https://pepy.tech/project/python-commentator) [![Downloads](https://pepy.tech/badge/python-commentator/month)](https://pepy.tech/project/python-commentator) ![Python versions](https://img.shields.io/pypi/pyversions/python-commentator.svg?style=flat-square)
 
