@@ -2,7 +2,7 @@
 
 by [Emery Berger](https://emeryberger.com)
 
-Commentator uses OpenAI's GPT-3 language model to add high-level
+Commentator uses OpenAI's large language model (GPT) to add high-level
 explanatory comments, docstrings, *and types* to Python code.
 
 [![PyPI Latest Release](https://img.shields.io/pypi/v/python-commentator.svg)](https://pypi.org/project/python-commentator/)[![Downloads](https://pepy.tech/badge/python-commentator)](https://pepy.tech/project/python-commentator) [![Downloads](https://pepy.tech/badge/python-commentator/month)](https://pepy.tech/project/python-commentator) ![Python versions](https://img.shields.io/pypi/pyversions/python-commentator.svg?style=flat-square)
