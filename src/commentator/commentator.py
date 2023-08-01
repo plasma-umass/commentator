@@ -286,54 +286,38 @@ def now_has_types(code1, code2):
         remove_annotations(node)
     return ast.unparse(tree1) != ast.unparse(tree2)
 
-class ExtractFunction(ast.NodeVisitor):
-    def __init__(self, name):
-        self.names = []
-        self.current_class = deque()
-        self.name = name
-        self.the_function = None
+class FunctionExtractor(ast.NodeVisitor):
+    def __init__(self, target: str):
+        self.target = target.split('.')
+        self.current = []
 
-    def visit_ClassDef(self, node):
-        self.current_class.appendleft(node.name)
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        self.current.append(node.name)
+        if self.current == self.target:
+            self.result = node
+            return
         self.generic_visit(node)
-        self.current_class.popleft()
-        
-    def visit_FunctionDef(self, node):
-        if not self.the_function:
-            self.process_function(node)
-    def visit_AsyncFunctionDef(self, node):
-        if not self.the_function:
-            self.process_function(node)
-    def process_function(self, node):
-        if len(self.current_class) > 0:
-            name = self.current_class[0] + '.' + node.name
-        else:
-            name = node.name
-        if self.name == name:
-            self.the_function = node
-        
+        self.current.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        self.current.append(node.name)
+        if self.current == self.target:
+            self.result = node
+            return
+        self.generic_visit(node)
+        self.current.pop()
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        self.current.append(node.name)
+        self.generic_visit(node)
+        self.current.pop()
+
 def extract_function_ast(program_str: str, function_name: str) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
-    """
-    Extract the abstract syntax tree (AST) for a function with a given name from a given program string.
+    module = ast.parse(program_str)
+    function_extractor = FunctionExtractor(function_name)
+    function_extractor.visit(module)
+    return function_extractor.result
 
-    Args:
-        program_str (str): A string representing the program code.
-        function_name (str): A string representing the name of the function to extract the AST for.
-
-    Returns:
-        ast.FunctionDef: The AST node representing the function definition.
-
-    Raises:
-        ValueError: If no function with the given name is found in the AST.
-    """
-    program_ast = ast.parse(program_str)
-    xf = ExtractFunction(function_name)
-    xf.visit(program_ast)
-    function_node = xf.the_function
-    # function_node = next((n for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == function_name), None)
-    if function_node is None:
-        raise ValueError(f"No function named '{function_name}' was found")
-    return function_node
 
 def extract_function_source(program_str, function_name):
     return ast.unparse(extract_function_ast(program_str, function_name))
@@ -343,26 +327,59 @@ class EnumerateFunctions(ast.NodeVisitor):
     def __init__(self):
         self.names = []
         self.current_class = deque()
+        self.current_function = deque()
 
     def visit_ClassDef(self, node):
-        self.current_class.appendleft(node.name)
+        self.current_class.append(node.name)
         self.generic_visit(node)
-        self.current_class.popleft()
+        self.current_class.pop()
         
     def visit_FunctionDef(self, node):
+        self.current_function.append(node.name)
         self.process_function(node)
+        self.current_function.pop()
+        
     def visit_AsyncFunctionDef(self, node):
+        self.current_function.append(node.name)
         self.process_function(node)
+        self.current_function.pop()
         
     def process_function(self, node):
         if len(self.current_class) > 0:
-            name = self.current_class[0] + '.' + node.name
+            name = '.'.join(self.current_class) # + '.' + node.name
+        elif len(self.current_function) > 1:
+            name = '.'.join(self.current_function) # + '.' + node.name
         else:
             name = node.name
         self.names.append(name)
         self.generic_visit(node)
         
     
+import ast
+from typing import List
+
+class FunctionEnumerator(ast.NodeVisitor):
+    def __init__(self):
+        self.function_names = []
+        self.namespace = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        self.namespace.append(node.name)
+        self.function_names.append(".".join(self.namespace))
+        self.generic_visit(node)
+        self.namespace.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        self.namespace.append(node.name)
+        self.function_names.append(".".join(self.namespace))
+        self.generic_visit(node)
+        self.namespace.pop()
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        self.namespace.append(node.name)
+        self.generic_visit(node)
+        self.namespace.pop()
+
 def enumerate_functions(program_str: str) -> List[str]:
     """
     Returns a list of names of functions and async functions defined in a given Python program string.
@@ -374,39 +391,52 @@ def enumerate_functions(program_str: str) -> List[str]:
         A list of names of functions and async functions defined in the program.
     """
     try:
-        program_ast = ast.parse(program_str)
+        module = ast.parse(program_str)
+        function_enumerator = FunctionEnumerator()
+        function_enumerator.visit(module)
+        return function_enumerator.function_names
     except SyntaxError:
-        # Failed to parse.
+        # Failed parse
         return []
-    ef = EnumerateFunctions()
-    ef.visit(program_ast)
-    return ef.names
-#    
-#    names = [n.name for n in program_ast.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-#    return names
+
+import ast
+from typing import List, Union
+
+class FunctionReplacer(ast.NodeTransformer):
+    def __init__(self, target: str, new_node: ast.AST):
+        self.target = target.split('.')
+        self.current = []
+        self.new_node = new_node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        self.current.append(node.name)
+        if self.current == self.target:
+            return self.new_node
+        result = self.generic_visit(node)
+        self.current.pop()
+        return result
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        self.current.append(node.name)
+        if self.current == self.target:
+            return self.new_node
+        result = self.generic_visit(node)
+        self.current.pop()
+        return result
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        self.current.append(node.name)
+        result = self.generic_visit(node)
+        self.current.pop()
+        return result
 
 def replace_function(program_str: str, function_name: str, new_function_str: str) -> str:
-    """Replace a function within a Python program with a new function.
-
-    Args:
-        program_str: A string representing a Python program.
-        function_name: The name of the function to be replaced.
-        new_function_str: A string representing the new function to replace the old one.
-
-    Returns:
-        A string representing the modified Python program.
-    """
-    program_ast = ast.parse(program_str)
-    xf = ExtractFunction(function_name)
-    xf.visit(program_ast)
-    function_node = xf.the_function
-    if function_node is None:
-        raise ValueError(f"No function named '{function_name}' was found")
-    new_function_ast = extract_function_ast(new_function_str, function_name)
-    function_node.body = new_function_ast.body
-    function_node.returns = new_function_ast.returns
-    update_args(function_node, new_function_ast)
-    return ast.unparse(program_ast)
+    module = ast.parse(program_str)
+    new_function_node = ast.parse(new_function_str).body[0]
+    function_replacer = FunctionReplacer(function_name, new_function_node)
+    new_module = function_replacer.visit(module)
+    return ast.unparse(new_module)
+    
 
 def extract_names(ast_node: ast.AST) -> Set[str]:
     """
