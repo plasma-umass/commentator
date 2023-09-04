@@ -4,6 +4,7 @@ import asyncio
 import logging
 import openai
 import os
+import re
 import sys
 
 from collections import deque
@@ -50,7 +51,7 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
         if check:
             content = f'Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}'
         else:
-            content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+            content = f'Make this code as Pythonic as possible. Guido van Rossum should be proud of the resulting code. It should bring a tear of joy to his eyes. Add comments to all of the code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
     elif programming_language == "C" or programming_language == "C++":
         content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
     else:
@@ -58,7 +59,7 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
     try:
         max_trials = 3
         for trial in range(max_trials):
-            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-3.5-turbo', 'messages': [{'role': 'system', 'content': 'You are a {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
+            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-4', 'messages': [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
             code_block = extract_code_block(completion.json())
             if check:
                 if "INCONSISTENT" in code_block:
@@ -490,16 +491,20 @@ def find_code_start(code: str) -> int:
     i = 0
     while i < len(lines) and lines[i].strip() == '':
         i += 1
-    first_line = lines[i].strip()
+    while not lines[i].strip().startswith('```'):
+        i += 1
+    first_line = lines[i]
+    offset = 3
     if first_line == '```':
-        return 3
-    if first_line.startswith('```'):
-        word = first_line[3:].strip()
-        if len(word) > 0 and ' ' not in word:
-            return len(word) + 3
+        return offset
+    matched = re.match(r'^```(?P<language>[a-z]*)', first_line)
+    if matched:
+        offset += len(matched.group('language')) + 1
+        word = first_line[offset:].strip()
+        if len(word) >= 0 and ' ' not in word:
+            return len(word) + offset
     return -1
-    '\n    Returns -1 if code block is not found.\n    '
-test = '\n```python\ndef abs(n):\n    # Check if integer is negative\n    if n < 0:\n        # Return the opposite sign of n (i.e., multiply n by -1)\n        return -n\n    else:\n        # Return n (which is already a positive integer or zero)\n        return n\n```\n'
+
 
 def extract_code_block(completion: dict) -> str:
     """
