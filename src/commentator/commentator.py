@@ -6,6 +6,7 @@ import openai
 import os
 import re
 import sys
+import traceback
 
 from collections import deque
 from rich.progress import Progress
@@ -51,22 +52,31 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
         if check:
             content = f'Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}'
         else:
-            content = f'Make this code as Pythonic as possible. Guido van Rossum should be proud of the resulting code. It should bring a tear of joy to his eyes. Add comments to all of the code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+            content = f'Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}'
     elif programming_language == "C" or programming_language == "C++":
         content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
     else:
         content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+        logging.info(content)
+        
     try:
         max_trials = 3
         for trial in range(max_trials):
-            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload={'model': 'gpt-4', 'messages': [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]})
-            code_block = extract_code_block(completion.json())
+            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload = { "model": 'gpt-4', "messages" : [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}] })
+            # completion = openai.ChatCompletion.create(request_timeout=30, model = 'gpt-4', messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with code.', 'role': 'user', 'content': content}])
+
+            code_block = completion.json()['choices'][0]['message']['content']
+            # code_block = completion['choices'][0]['message']['content']
+            
+            logging.info(code_block)
+            
             if check:
                 if "INCONSISTENT" in code_block:
                     print(f"inconsistency found:\n{code_block}")
                 break
                 
             logging.info(f'PROCESSING {code_block}')
+           
             if validated(the_code, code_block):
                 logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
                 global successful_comments
@@ -82,8 +92,9 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
                 stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
                 if stripped_the_code == stripped_code_block:
                     logging.info(f"COMMENTS EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
-                    pass
+                    break
                 else:
+                    continue
                     logging.info(f"COMMENTS NOT EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
                     # Otherwise, just splice in the types and the
                     # docstring from the generated function into the
@@ -109,6 +120,9 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
         import sys
         sys.exit(1)
     except Exception as e:
+        print(f"Commentator exception: {e}")
+        print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
+        traceback.print_exc()
         return ''
     progress.update(pbar, advance=1)
     return code_block
@@ -491,8 +505,11 @@ def find_code_start(code: str) -> int:
     i = 0
     while i < len(lines) and lines[i].strip() == '':
         i += 1
-    while not lines[i].strip().startswith('```'):
+    start_line = i
+    while i < len(lines) and not lines[i].strip().startswith('```'):
         i += 1
+    if i >= len(lines):
+        i = start_line
     first_line = lines[i]
     offset = 3
     if first_line == '```':
