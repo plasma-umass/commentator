@@ -46,7 +46,7 @@ def generate_import(node):
     else:
         return ''
 
-async def get_comments(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Optional[openai.api_resources.Completion]:
+async def get_comments(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Any: # Optional[openai.api_resources.Completion]:
     import httpx
     if "Python" in programming_language:
         if check:
@@ -61,8 +61,9 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
         
     try:
         max_trials = 3
+        timeout_value = 30
         for trial in range(max_trials):
-            completion = await openai_async.chat_complete(openai.api_key, timeout=30, payload = { "model": 'gpt-4', "messages" : [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}] })
+            completion = await openai_async.chat_complete(openai.api_key, timeout=timeout_value, payload = { "model": 'gpt-4', "messages" : [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}] })
             # completion = openai.ChatCompletion.create(request_timeout=30, model = 'gpt-4', messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with code.', 'role': 'user', 'content': content}])
 
             code_block = completion.json()['choices'][0]['message']['content']
@@ -113,12 +114,16 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
             else:
                 logging.info(f'Failed to validate:\n-----\n{code_block}\n-----')
                 code_block = ''
-    except (openai.error.AuthenticationError, httpx.LocalProtocolError):
+    except (httpx.LocalProtocolError):
         print()
         print('You need an OpenAI key to use commentator. You can get a key here: https://openai.com/api/')
         print('Invoke commentator with the api-key argument or set the environment variable OPENAI_API_KEY.')
         import sys
         sys.exit(1)
+    except(httpx.ReadTimeout):
+        # exponential backoff
+        timeout_value *= 2
+        pass
     except Exception as e:
         print(f"Commentator exception: {e}")
         print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
