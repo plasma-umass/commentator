@@ -12,7 +12,7 @@ class StripComments(ast.NodeTransformer):
         
     def process_function(self, node):
         # Remove the docstring if it exists
-        if isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
+        if isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant):
             node.body.pop(0)
         self.generic_visit(node)
         return node
