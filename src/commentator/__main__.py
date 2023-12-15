@@ -30,7 +30,7 @@ async def commentate_one_file(index, file, check, language, progress):
         the_code = commentator.extract_function_source(code, func_name)
         #if not (commentator.has_docstring(the_code) and commentator.has_types(the_code)):
         function_count += 1
-            
+        
     if function_count == 0:
         return
 
@@ -135,7 +135,7 @@ def do_strip_comments(progress, files):
 def main(file, api_key, check, language, strip_types, strip_comments):
     """Automatically adds comments to your code.
 
-    See https://github.com/emeryberger/commentator for more information.
+    See https://github.com/plasma-umass/commentator for more information.
     """
     with Progress() as progress:
         if strip_types:
