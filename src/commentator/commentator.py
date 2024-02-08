@@ -1,6 +1,8 @@
 import ast_comments as ast
-import openai_async
+import openai # _async
 import asyncio
+import contextlib
+import litellm
 import logging
 import openai
 import os
@@ -19,11 +21,72 @@ from . import strip_comments
 from . import strip_imports
 from . import strip_types
 
+def extract_python_code(input_str: str) -> str:
+    # Pattern to match code blocks enclosed in triple backquotes
+    code_block_pattern = r"```python\n(.*?)\n```"
+    # Pattern to match a Python function directly (somewhat simplified)
+    direct_code_pattern = r"(def\s+\w+\(.*?\):(?:\n\s+.+)+)"
+    
+    # First, try to find a code block enclosed in triple backquotes
+    match = re.search(code_block_pattern, input_str, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    
+    # If not found, try to match a direct Python function definition
+    match = re.search(direct_code_pattern, input_str, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    
+    # If no code is found, return an empty string.
+    return ""
+
+
+    
+def print_key_info():
+    print("You need a key (or keys) from an AI service to use CWhy.")
+    print()
+    print("OpenAI:")
+    print("  You can get a key here: https://platform.openai.com/api-keys")
+    print("  Set the environment variable OPENAI_API_KEY to your key value:")
+    print("    export OPENAI_API_KEY=<your key>")
+    print()
+    print("Bedrock:")
+    print("  To use Bedrock, you need an AWS account.")
+    print("  Set the following environment variables:")
+    print("    export AWS_ACCESS_KEY_ID=<your key id>")
+    print("    export AWS_SECRET_ACCESS_KEY=<your secret key>")
+    print("    export AWS_REGION_NAME=us-west-2")
+    print("  You also need to request access to Claude:")
+    print(
+        "   https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
+    )
+
+
+litellm.set_verbose = False
 logname = 'commentator.log'
 logging.basicConfig(filename=logname, filemode='w', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-logging.info('Running commentator.')
+logging.info('Running Commentator.')
+logging.getLogger().setLevel(logging.INFO)
 
 successful_comments = 0
+
+# If keys are defined in the environment, we use the appropriate service.
+service = None
+_DEFAULT_FALLBACK_MODELS = []
+
+with contextlib.suppress(KeyError):
+    if os.environ["OPENAI_API_KEY"]:
+        service = "OpenAI"
+        _DEFAULT_FALLBACK_MODELS = ["openai/gpt-4", "openai/gpt-3.5-turbo"]
+with contextlib.suppress(KeyError):
+    if not _DEFAULT_FALLBACK_MODELS:
+        if {
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_REGION_NAME",
+        } <= os.environ.keys():
+            service = "Bedrock"
+            _DEFAULT_FALLBACK_MODELS = ["bedrock/anthropic.claude-v2:1"]
 
 
 def generate_import(node):
@@ -63,11 +126,12 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
         max_trials = 3
         timeout_value = 30
         for trial in range(max_trials):
-            completion = await openai_async.chat_complete(openai.api_key, timeout=timeout_value, payload = { "model": 'gpt-4', "messages" : [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}] })
-            # completion = openai.ChatCompletion.create(request_timeout=30, model = 'gpt-4', messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with code.', 'role': 'user', 'content': content}])
+            completion = await litellm.acompletion(
+                model = _DEFAULT_FALLBACK_MODELS[0],
+                messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]
+            )
 
-            code_block = completion.json()['choices'][0]['message']['content']
-            # code_block = completion['choices'][0]['message']['content']
+            code_block = extract_python_code(completion['choices'][0]['message']['content'])
             
             logging.info(code_block)
             
@@ -115,9 +179,7 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
                 logging.info(f'Failed to validate:\n-----\n{code_block}\n-----')
                 code_block = ''
     except (httpx.LocalProtocolError):
-        print()
-        print('You need an OpenAI key to use commentator. You can get a key here: https://openai.com/api/')
-        print('Invoke commentator with the api-key argument or set the environment variable OPENAI_API_KEY.')
+        print_key_info()
         import sys
         sys.exit(1)
     except(httpx.ReadTimeout):
@@ -562,12 +624,11 @@ def validated(the_code: str, code_block: str) -> bool:
         result_ast = ast.parse(code_block)
     except:
         return False
-    #if result_ast:
-    #    if not compare_python_code(remove_code_before_function(the_code), remove_code_before_function(code_block)):
-    #        return False
     if result_ast and has_types(code_block):
+        # TODO: extend with type checking
         return True
     return False
+
 
 async def commentate(filename: str, check: bool, code: str, pbar, progress, language: Optional[str]=None) -> Tuple[str, int]:
     """
@@ -586,6 +647,7 @@ async def commentate(filename: str, check: bool, code: str, pbar, progress, lang
     Returns:
         str, int: A string of the processed code and the number of successfully commented functions.
     """
+    assert service
     if language:
         translate_text = f"Write all comments in {language}."
     else:
