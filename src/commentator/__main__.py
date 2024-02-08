@@ -137,6 +137,10 @@ def main(file, api_key, check, language, strip_types, strip_comments):
 
     See https://github.com/plasma-umass/commentator for more information.
     """
+    if not commentator.service:
+        commentator.print_key_info()
+        import sys
+        sys.exit(1)
     with Progress() as progress:
         if strip_types:
             do_strip_types(progress, file)
