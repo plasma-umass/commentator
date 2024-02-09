@@ -54,6 +54,7 @@ explanatory comments, docstrings, *and types* to Python code.
  >     https://us-east-1.console.aws.amazon.com/iam/home?region=us-east-1#/users/details/YOUR_USER_NAME?section=security_credentials
  >
  >  You also need to request access to Claude (change region as needed):
+ >
  >     https://us-east-1.console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess
  >
  >  Commentator will automatically select which AI service to use (OpenAI or AWS Bedrock) when it detects that the appropriate
