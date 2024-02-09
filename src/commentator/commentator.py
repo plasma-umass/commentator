@@ -21,7 +21,42 @@ from . import strip_comments
 from . import strip_imports
 from . import strip_types
 
-def extract_python_code(input_str: str) -> str:
+def extract_python_code(input_string):
+    lines = input_string.split('\n')
+    functions = []
+    current_func = []
+    in_func = False
+    indent_level = 0
+
+    for line in lines:
+        if line.strip().startswith('def ') and not in_func:
+            # Start of a new function
+            in_func = True
+            current_func = [line]
+            indent_level = len(line) - len(line.lstrip())
+        elif in_func:
+            current_indent = len(line) - len(line.lstrip())
+            if line.strip() == '' or current_indent > indent_level:
+                # Part of the current function
+                current_func.append(line)
+            else:
+                # End of the current function
+                functions.append('\n'.join(current_func))
+                in_func = False
+                indent_level = 0
+                # Check if this line is a new function
+                if line.strip().startswith('def '):
+                    in_func = True
+                    current_func = [line]
+                    indent_level = len(line) - len(line.lstrip())
+                
+    # Add the last function if the file ends without dedenting
+    if in_func:
+        functions.append('\n'.join(current_func))
+
+    return functions[0] # For now, only return first function
+
+def prev_extract_python_code(input_str: str) -> str:
     # Pattern to match code blocks enclosed in triple backquotes
     code_block_pattern = r"```python\n(.*?)\n```"
     # Pattern to match a Python function directly (somewhat simplified)
@@ -66,7 +101,7 @@ litellm.set_verbose = False
 logname = 'commentator.log'
 logging.basicConfig(filename=logname, filemode='w', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logging.info('Running Commentator.')
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.ERROR)
 
 successful_comments = 0
 
@@ -131,9 +166,13 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
                 messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]
             )
 
-            code_block = extract_python_code(completion['choices'][0]['message']['content'])
+            code_block = completion['choices'][0]['message']['content']
             
             logging.info(code_block)
+            
+            code_block = extract_python_code(code_block)
+            
+            logging.info("AFTER extraction: " + code_block)
             
             if check:
                 if "INCONSISTENT" in code_block:
@@ -186,6 +225,14 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
         # exponential backoff
         timeout_value *= 2
         pass
+    except litellm.exceptions.PermissionDeniedError:
+        print("Permission denied error.")
+        print("You may need to request access to Claude:")
+        print(
+            "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
+        )
+        import sys
+        sys.exit(1)
     except Exception as e:
         print(f"Commentator exception: {e}")
         print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
