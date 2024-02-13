@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logging.info("Running Commentator.")
-logging.getLogger().setLevel(logging.INFO) # ERROR)
+logging.getLogger().setLevel(logging.WARNING)
 
 total_cost = 0
 
@@ -211,6 +211,29 @@ async def run_mypy_on_code(file_name: str, code: str) -> (str, int):
         return error_lines, len(error_lines)
 
 
+def generate_prompt(
+    programming_language: str,
+    func_name: str,
+    check: bool,
+    translate_text: str,
+    the_code: str,
+) -> str:
+    """
+    Generate the request prompt based on the programming language and specifications.
+    """
+    if "Python" in programming_language:
+        if check:
+            return f"Report ALL comments in the given {programming_language} code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}"
+        else:
+            return f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}"
+    elif programming_language in ["C", "C++"]:
+        return f"Add comments to the following {programming_language} code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
+    else:
+        prompt = f"Add comments to the following {programming_language} code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
+        logging.info(prompt)
+        return prompt
+
+
 async def get_comments(
     programming_language: str,
     func_name: str,
@@ -222,23 +245,16 @@ async def get_comments(
 ) -> Any:  # Optional[openai.api_resources.Completion]:
     import httpx
 
-    if "Python" in programming_language:
-        if check:
-            content = f"Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}"
-        else:
-            content = f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}"
-    elif programming_language == "C" or programming_language == "C++":
-        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
-    else:
-        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
-        logging.info(content)
+    prompt = generate_prompt(
+        programming_language, func_name, check, translate_text, the_code
+    )
 
     try:
         max_trials = 3
         timeout_value = 30
         for trial in range(max_trials):
+            # Append mypy errors to the code as comments if there are any errors
             mypy_errors, error_count = await run_mypy_on_code("prog.py", the_code)
-            # Append mypy errors to the code as comments if check is True and errors exist
             error_comments = ""
             if error_count > 0:
                 error_comments = "Fix these Mypy errors:\n" + "\n".join(
@@ -251,10 +267,11 @@ async def get_comments(
                         "role": "system",
                         "content": "You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.",
                         "role": "user",
-                        "content": content + error_comments,
+                        "content": prompt + error_comments,
                     }
                 ],
             )
+
             global total_cost
             total_cost += float(litellm.completion_cost(completion_response=completion))
 
@@ -262,10 +279,12 @@ async def get_comments(
 
             logging.info(code_block)
 
+            prev_code_block = code_block
             code_block = extract_python_code(code_block)
 
             if not code_block:
-                logging.info("Failed to extract code.")
+                logging.warning("Failed to extract code from this block:\n" + prev_code_block)
+                continue
             else:
                 logging.info("AFTER extraction: " + code_block)
 
@@ -281,143 +300,24 @@ async def get_comments(
                 global successful_comments
                 successful_comments += 1
                 # If the commented version is equivalent to the uncommented version, use it.
-                stripped_the_code, stripped_code_block = equivalent_code(
-                    the_code, code_block
-                )
-                if stripped_the_code == stripped_code_block:
-                    logging.info(
-                        f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
+                try:
+                    stripped_the_code, stripped_code_block = equivalent_code(
+                        the_code, code_block
                     )
-                else:
+                    if stripped_the_code == stripped_code_block:
+                        logging.info(
+                            f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
+                        )
+                    else:
+                        code_block = ""
+                        continue
+                except IndentationError:
+                    code_block = ""
                     continue
 
-    except httpx.LocalProtocolError:
-        print_key_info()
-        import sys
-
-        sys.exit(1)
-    except httpx.ReadTimeout:
-        # exponential backoff
-        timeout_value *= 2
-    except litellm.exceptions.PermissionDeniedError:
-        print("Permission denied error.")
-        print("You may need to request access to Claude:")
-        print(
-            "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
-        )
-        import sys
-
-        sys.exit(1)
-    except Exception as e:
-        print(f"Commentator exception: {e}")
-        print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
-        traceback.print_exc()
-        return ""
-    progress.update(pbar, advance=1)
-    return code_block
-
-
-async def get_comments_prev(
-    programming_language: str,
-    func_name: str,
-    check: bool,
-    translate_text: str,
-    the_code: str,
-    pbar,
-    progress,
-) -> Any:  # Optional[openai.api_resources.Completion]:
-    import httpx
-
-    if "Python" in programming_language:
-        if check:
-            content = f"Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}"
-        else:
-            content = f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}"
-    elif programming_language == "C" or programming_language == "C++":
-        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
-    else:
-        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
-        logging.info(content)
-
-    try:
-        max_trials = 3
-        timeout_value = 30
-        for trial in range(max_trials):
-            completion = await litellm.acompletion(
-                model=_DEFAULT_FALLBACK_MODELS[0],
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.",
-                        "role": "user",
-                        "content": content,
-                    }
-                ],
-            )
-
-            code_block = completion["choices"][0]["message"]["content"]
-
-            logging.info(code_block)
-
-            code_block = extract_python_code(code_block)
-
-            logging.info("AFTER extraction: " + code_block)
-
-            if check:
-                if "INCONSISTENT" in code_block:
-                    print(f"inconsistency found:\n{code_block}")
-                break
-
-            logging.info(f"PROCESSING {code_block}")
-
-            if validated(the_code, code_block):
-                logging.info(f"Validated code block:\n-----\n{code_block}\n-----")
-                global successful_comments
-                successful_comments += 1
-                # If the commented version is equivalent to the uncommented version, use it.
-                the_code_ast = ast.parse(the_code)
-                code_block_ast = ast.parse(code_block)
-                stripped_the_code = strip_comments.strip_comments(the_code_ast)
-                stripped_the_code = strip_types.strip_types(
-                    ast.parse(stripped_the_code)
-                )
-                stripped_the_code = strip_imports.strip_imports(
-                    ast.parse(stripped_the_code)
-                )
-                stripped_code_block = strip_comments.strip_comments(code_block_ast)
-                stripped_code_block = strip_types.strip_types(
-                    ast.parse(stripped_code_block)
-                )
-                stripped_code_block = strip_imports.strip_imports(
-                    ast.parse(stripped_code_block)
-                )
-                if stripped_the_code == stripped_code_block:
-                    logging.info(
-                        f"COMMENTS EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
-                    )
-                    break
-                else:
-                    continue
-                    logging.info(
-                        f"COMMENTS NOT EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
-                    )
-                    # Otherwise, just splice in the types and the
-                    # docstring from the generated function into the
-                    # original function.
-                    for node in ast.walk(the_code_ast):
-                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            tca = node
-                            break
-                    for node in ast.walk(code_block_ast):
-                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            cba = node
-                            break
-                    replace_function_annotations(tca, cba)
-                    code_block = ast.unparse(tca)
-                break
             else:
-                logging.info(f"Failed to validate:\n-----\n{code_block}\n-----")
                 code_block = ""
+
     except httpx.LocalProtocolError:
         print_key_info()
         import sys
@@ -717,7 +617,7 @@ class EnumerateFunctions(ast.NodeVisitor):
         self.process_function(node)
         self.current_function.pop()
 
-    def process_function(self, node):
+    def process_function(self, node: ast.AST) -> None:
         if len(self.current_class) > 0:
             name = ".".join(self.current_class)  # + '.' + node.name
         elif len(self.current_function) > 1:
