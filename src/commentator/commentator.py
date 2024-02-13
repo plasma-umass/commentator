@@ -1,5 +1,5 @@
 import ast_comments as ast
-import openai # _async
+import openai  # _async
 import asyncio
 import contextlib
 import litellm
@@ -21,7 +21,19 @@ import traceback
 from collections import deque
 from rich.progress import Progress
 
-from typing import Any, cast, Deque, DefaultDict, Dict, FrozenSet, List, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    cast,
+    Deque,
+    DefaultDict,
+    Dict,
+    FrozenSet,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 import typing
 
 from . import collect_types
@@ -29,64 +41,66 @@ from . import strip_comments
 from . import strip_imports
 from . import strip_types
 
+
 def extract_python_code(input_string):
-    lines = input_string.split('\n')
+    lines = input_string.split("\n")
     functions = []
     current_func = []
     in_func = False
     indent_level = 0
 
     for line in lines:
-        if line.strip().startswith('def ') and not in_func:
+        if line.strip().startswith("def ") and not in_func:
             # Start of a new function
             in_func = True
             current_func = [line]
             indent_level = len(line) - len(line.lstrip())
         elif in_func:
             current_indent = len(line) - len(line.lstrip())
-            if line.strip() == '' or current_indent > indent_level:
+            if line.strip() == "" or current_indent > indent_level:
                 # Part of the current function
                 current_func.append(line)
             else:
                 # End of the current function
-                functions.append('\n'.join(current_func))
+                functions.append("\n".join(current_func))
                 in_func = False
                 indent_level = 0
                 # Check if this line is a new function
-                if line.strip().startswith('def '):
+                if line.strip().startswith("def "):
                     in_func = True
                     current_func = [line]
                     indent_level = len(line) - len(line.lstrip())
-                
+
     # Add the last function if the file ends without dedenting
     if in_func:
-        functions.append('\n'.join(current_func))
+        functions.append("\n".join(current_func))
 
-    return functions[0] # For now, only return first function
+    return functions[0]  # For now, only return first function
+
 
 def prev_extract_python_code(input_str: str) -> str:
     # Pattern to match code blocks enclosed in triple backquotes
     code_block_pattern = r"```python\n(.*?)\n```"
     # Pattern to match a Python function directly (somewhat simplified)
     direct_code_pattern = r"(def\s+\w+\(.*?\):(?:\n\s+.+)+)"
-    
+
     # First, try to find a code block enclosed in triple backquotes
     match = re.search(code_block_pattern, input_str, re.DOTALL)
     if match:
         return match.group(1).strip()
-    
+
     # If not found, try to match a direct Python function definition
     match = re.search(direct_code_pattern, input_str, re.DOTALL)
     if match:
         return match.group(1).strip()
-    
+
     # If no code is found, return an empty string.
     return ""
 
 
-    
 def print_key_info():
     import os
+
     print("You need a key (or keys) from an AI service to use CWhy.")
     print()
     print("OpenAI:")
@@ -115,9 +129,15 @@ def print_key_info():
 
 
 litellm.set_verbose = False
-logname = 'commentator.log'
-logging.basicConfig(filename=logname, filemode='w', format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-logging.info('Running Commentator.')
+logname = "commentator.log"
+logging.basicConfig(
+    filename=logname,
+    filemode="w",
+    format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+    level=logging.INFO,
+)
+logging.info("Running Commentator.")
 logging.getLogger().setLevel(logging.ERROR)
 
 successful_comments = 0
@@ -147,7 +167,7 @@ def generate_import(node):
     typing that were declared as annotations in the given AST node.
     """
     # Find all type annotations in the node
-    typing_classes = [item for item in dir(typing) if not item.startswith('_')]
+    typing_classes = [item for item in dir(typing) if not item.startswith("_")]
     # ["List", "Tuple", "Set", "FrozenSet", "Callable", "Dict", "DefaultDict", "Deque", "Any", "TextIO", "Union", "Optional", "cast"]
     types_used = collect_types.collect_types(node)
     typing_imports = set()
@@ -155,12 +175,12 @@ def generate_import(node):
         for c in typing_classes:
             if t.startswith(c):
                 typing_imports.add(c)
-    
+
     # Generate the import statement
     if typing_imports:
-        return 'from typing import ' + ', '.join(sorted(list(typing_imports)))
+        return "from typing import " + ", ".join(sorted(list(typing_imports)))
     else:
-        return ''
+        return ""
 
 
 def equivalent_code(the_code, code_block):
@@ -174,36 +194,55 @@ def equivalent_code(the_code, code_block):
     stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
     return stripped_the_code, stripped_code_block
 
-    
+
 async def run_mypy_on_code(file_name: str, code: str) -> (str, int):
     """
     Run mypy on the given code string from the given file and return the stderr output containing mypy error messages and the number of errors.
     """
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.py') as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".py") as tmp:
         tmp_file_name = tmp.name
-        tmp.write(code.encode('utf-8'))
+        tmp.write(code.encode("utf-8"))
         tmp.flush()
-        result = await asyncio.create_subprocess_exec('mypy', '--strict', tmp_file_name, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = await asyncio.create_subprocess_exec(
+            "mypy",
+            "--strict",
+            tmp_file_name,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         stdout, stderr = await result.communicate()
         os.unlink(tmp_file_name)  # Delete the temporary file
-        stdout_decoded = stdout.decode('utf-8')
-        error_lines = [line.replace(tmp_file_name, file_name) for line in stdout_decoded.split('\n') if 'error:' in line]
+        stdout_decoded = stdout.decode("utf-8")
+        error_lines = [
+            line.replace(tmp_file_name, file_name)
+            for line in stdout_decoded.split("\n")
+            if "error:" in line
+        ]
         return error_lines, len(error_lines)
 
-    
-async def get_comments(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Any: # Optional[openai.api_resources.Completion]:
+
+async def get_comments(
+    programming_language: str,
+    func_name: str,
+    check: bool,
+    translate_text: str,
+    the_code: str,
+    pbar,
+    progress,
+) -> Any:  # Optional[openai.api_resources.Completion]:
     import httpx
+
     if "Python" in programming_language:
         if check:
-            content = f'Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}'
+            content = f"Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}"
         else:
-            content = f'Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}'
+            content = f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}"
     elif programming_language == "C" or programming_language == "C++":
         content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
     else:
-        content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
         logging.info(content)
-        
+
     try:
         max_trials = 3
         timeout_value = 30
@@ -212,43 +251,57 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
             # Append mypy errors to the code as comments if check is True and errors exist
             error_comments = ""
             if error_count > 0:
-                error_comments = "Fix these Mypy errors:\n" + '\n'.join([f'# {error}' for error in mypy_errors])
+                error_comments = "Fix these Mypy errors:\n" + "\n".join(
+                    [f"# {error}" for error in mypy_errors]
+                )
             completion = await litellm.acompletion(
-                model = _DEFAULT_FALLBACK_MODELS[0],
-                messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content + error_comments}]
+                model=_DEFAULT_FALLBACK_MODELS[0],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.",
+                        "role": "user",
+                        "content": content + error_comments,
+                    }
+                ],
             )
 
-            code_block = completion['choices'][0]['message']['content']
-            
+            code_block = completion["choices"][0]["message"]["content"]
+
             logging.info(code_block)
-            
+
             code_block = extract_python_code(code_block)
-            
+
             logging.info("AFTER extraction: " + code_block)
-            
+
             if check:
                 if "INCONSISTENT" in code_block:
                     print(f"inconsistency found:\n{code_block}")
                 break
-                
-            logging.info(f'PROCESSING {code_block}')
-           
+
+            logging.info(f"PROCESSING {code_block}")
+
             if validated(the_code, code_block):
-                logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
+                logging.info(f"Validated code block:\n-----\n{code_block}\n-----")
                 global successful_comments
                 successful_comments += 1
                 # If the commented version is equivalent to the uncommented version, use it.
-                stripped_the_code, stripped_code_block = equivalent_code(the_code, code_block)
+                stripped_the_code, stripped_code_block = equivalent_code(
+                    the_code, code_block
+                )
                 if stripped_the_code == stripped_code_block:
-                    logging.info(f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    logging.info(
+                        f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
+                    )
                 else:
                     continue
-                
-    except (httpx.LocalProtocolError):
+
+    except httpx.LocalProtocolError:
         print_key_info()
         import sys
+
         sys.exit(1)
-    except(httpx.ReadTimeout):
+    except httpx.ReadTimeout:
         # exponential backoff
         timeout_value *= 2
         pass
@@ -259,71 +312,101 @@ async def get_comments(programming_language: str, func_name: str, check: bool, t
             "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
         )
         import sys
+
         sys.exit(1)
     except Exception as e:
         print(f"Commentator exception: {e}")
         print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
         traceback.print_exc()
-        return ''
+        return ""
     progress.update(pbar, advance=1)
     return code_block
 
-async def get_comments_prev(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Any: # Optional[openai.api_resources.Completion]:
+
+async def get_comments_prev(
+    programming_language: str,
+    func_name: str,
+    check: bool,
+    translate_text: str,
+    the_code: str,
+    pbar,
+    progress,
+) -> Any:  # Optional[openai.api_resources.Completion]:
     import httpx
+
     if "Python" in programming_language:
         if check:
-            content = f'Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}'
+            content = f"Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}"
         else:
-            content = f'Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}'
+            content = f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}"
     elif programming_language == "C" or programming_language == "C++":
         content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
     else:
-        content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
         logging.info(content)
-        
+
     try:
         max_trials = 3
         timeout_value = 30
         for trial in range(max_trials):
             completion = await litellm.acompletion(
-                model = _DEFAULT_FALLBACK_MODELS[0],
-                messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content}]
+                model=_DEFAULT_FALLBACK_MODELS[0],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.",
+                        "role": "user",
+                        "content": content,
+                    }
+                ],
             )
 
-            code_block = completion['choices'][0]['message']['content']
-            
+            code_block = completion["choices"][0]["message"]["content"]
+
             logging.info(code_block)
-            
+
             code_block = extract_python_code(code_block)
-            
+
             logging.info("AFTER extraction: " + code_block)
-            
+
             if check:
                 if "INCONSISTENT" in code_block:
                     print(f"inconsistency found:\n{code_block}")
                 break
-                
-            logging.info(f'PROCESSING {code_block}')
-           
+
+            logging.info(f"PROCESSING {code_block}")
+
             if validated(the_code, code_block):
-                logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
+                logging.info(f"Validated code block:\n-----\n{code_block}\n-----")
                 global successful_comments
                 successful_comments += 1
                 # If the commented version is equivalent to the uncommented version, use it.
                 the_code_ast = ast.parse(the_code)
                 code_block_ast = ast.parse(code_block)
                 stripped_the_code = strip_comments.strip_comments(the_code_ast)
-                stripped_the_code = strip_types.strip_types(ast.parse(stripped_the_code))
-                stripped_the_code = strip_imports.strip_imports(ast.parse(stripped_the_code))
+                stripped_the_code = strip_types.strip_types(
+                    ast.parse(stripped_the_code)
+                )
+                stripped_the_code = strip_imports.strip_imports(
+                    ast.parse(stripped_the_code)
+                )
                 stripped_code_block = strip_comments.strip_comments(code_block_ast)
-                stripped_code_block = strip_types.strip_types(ast.parse(stripped_code_block))
-                stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
+                stripped_code_block = strip_types.strip_types(
+                    ast.parse(stripped_code_block)
+                )
+                stripped_code_block = strip_imports.strip_imports(
+                    ast.parse(stripped_code_block)
+                )
                 if stripped_the_code == stripped_code_block:
-                    logging.info(f"COMMENTS EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    logging.info(
+                        f"COMMENTS EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
+                    )
                     break
                 else:
                     continue
-                    logging.info(f"COMMENTS NOT EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                    logging.info(
+                        f"COMMENTS NOT EQUAL\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
+                    )
                     # Otherwise, just splice in the types and the
                     # docstring from the generated function into the
                     # original function.
@@ -339,13 +422,14 @@ async def get_comments_prev(programming_language: str, func_name: str, check: bo
                     code_block = ast.unparse(tca)
                 break
             else:
-                logging.info(f'Failed to validate:\n-----\n{code_block}\n-----')
-                code_block = ''
-    except (httpx.LocalProtocolError):
+                logging.info(f"Failed to validate:\n-----\n{code_block}\n-----")
+                code_block = ""
+    except httpx.LocalProtocolError:
         print_key_info()
         import sys
+
         sys.exit(1)
-    except(httpx.ReadTimeout):
+    except httpx.ReadTimeout:
         # exponential backoff
         timeout_value *= 2
         pass
@@ -356,14 +440,16 @@ async def get_comments_prev(programming_language: str, func_name: str, check: bo
             "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
         )
         import sys
+
         sys.exit(1)
     except Exception as e:
         print(f"Commentator exception: {e}")
         print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
         traceback.print_exc()
-        return ''
+        return ""
     progress.update(pbar, advance=1)
     return code_block
+
 
 def replace_function_annotations(target, source):
     """
@@ -377,7 +463,9 @@ def replace_function_annotations(target, source):
         None
     """
     # Replace argument and return type annotations
-    for i, (target_arg, source_arg) in enumerate(zip(target.args.args, source.args.args)):
+    for i, (target_arg, source_arg) in enumerate(
+        zip(target.args.args, source.args.args)
+    ):
         if source_arg.annotation is not None:
             target_arg.annotation = source_arg.annotation
         elif i < len(source.args.defaults):
@@ -386,7 +474,7 @@ def replace_function_annotations(target, source):
     if source.returns is not None:
         target.returns = source.returns
     else:
-        target.returns = ast.parse('None').body[0].value
+        target.returns = ast.parse("None").body[0].value
 
     # Replace docstring
     if ast.get_docstring(source):
@@ -395,9 +483,12 @@ def replace_function_annotations(target, source):
         else:
             docstring_node = ast.Expr(ast.Str(ast.get_docstring(source)))
             target.body.insert(0, docstring_node)
-            
 
-def update_args(old_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef], new_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
+
+def update_args(
+    old_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef],
+    new_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef],
+) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
     """
     Updates the arguments of a function defined by `old_function_ast` with the arguments of `new_function_ast`.
 
@@ -419,8 +510,11 @@ def update_args(old_function_ast: Union[ast.FunctionDef, ast.AsyncFunctionDef], 
             new_args.append(arg)
     old_function_ast.args.args = new_args
     return old_function_ast
+
+
 test = '\ndef abs(n):\n    """ WUT """\n    # Check if integer is negative\n    if n < 0:\n        # Return the opposite sign of n (i.e., multiply n by -1)\n        return -n\n    else:\n        # Return n (which is already a positive integer or zero)\n        return n\n'
-test2 = '\ndef abs(n):\n    if n < 0:\n        return -n\n    else:\n        return n\n'
+test2 = "\ndef abs(n):\n    if n < 0:\n        return -n\n    else:\n        return n\n"
+
 
 def remove_code_before_function(code: str) -> str:
     """
@@ -440,7 +534,8 @@ def remove_code_before_function(code: str) -> str:
     else:
         return code
     lines = code.splitlines()
-    return '\n'.join(lines[start_index:])
+    return "\n".join(lines[start_index:])
+
 
 def remove_annotations(node: ast.AST) -> None:
     """
@@ -456,17 +551,36 @@ def remove_annotations(node: ast.AST) -> None:
             arg.annotation = None
         node.returns = None
 
-def remove_comments(node: Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module, ast.Expr]) -> None:
+
+def remove_comments(
+    node: Union[
+        ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module, ast.Expr
+    ]
+) -> None:
     """
     Removes comments in a Python code node.
     :param node: The code node to remove comments from.
     """
-    if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef) or isinstance(node, ast.ClassDef) or isinstance(node, ast.Module):
-        if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
-            node.body[0].value.s = ''
-        node.body = [n for n in node.body if not isinstance(n, ast.Expr) or not isinstance(n.value, ast.Str)]
+    if (
+        isinstance(node, ast.FunctionDef)
+        or isinstance(node, ast.AsyncFunctionDef)
+        or isinstance(node, ast.ClassDef)
+        or isinstance(node, ast.Module)
+    ):
+        if (
+            node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Str)
+        ):
+            node.body[0].value.s = ""
+        node.body = [
+            n
+            for n in node.body
+            if not isinstance(n, ast.Expr) or not isinstance(n.value, ast.Str)
+        ]
     elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Str):
-        node.value.s = ''
+        node.value.s = ""
+
 
 def compare_python_code(code1: str, code2: str) -> bool:
     """
@@ -496,6 +610,7 @@ def compare_python_code(code1: str, code2: str) -> bool:
     except:
         return False
 
+
 def has_types(func_code: str) -> bool:
     """
     Check if a given function has type annotations for all its arguments and return value.
@@ -511,9 +626,13 @@ def has_types(func_code: str) -> bool:
     tree = ast.parse(func_code)
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            all_typed = all([arg.annotation is not None for arg in node.args.args]) and node.returns is not None
+            all_typed = (
+                all([arg.annotation is not None for arg in node.args.args])
+                and node.returns is not None
+            )
             return all_typed
     return False
+
 
 def has_docstring(func_code: str) -> bool:
     """
@@ -528,9 +647,14 @@ def has_docstring(func_code: str) -> bool:
     tree = ast.parse(func_code)
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Str):
+            if (
+                node.body
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Str)
+            ):
                 return len(node.body[0].value.s) > 0
     return False
+
 
 def now_has_types(code1, code2):
     tree1 = ast.parse(code1)
@@ -539,9 +663,10 @@ def now_has_types(code1, code2):
         remove_annotations(node)
     return ast.unparse(tree1) != ast.unparse(tree2)
 
+
 class FunctionExtractor(ast.NodeVisitor):
     def __init__(self, target: str):
-        self.target = target.split('.')
+        self.target = target.split(".")
         self.current = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
@@ -565,7 +690,10 @@ class FunctionExtractor(ast.NodeVisitor):
         self.generic_visit(node)
         self.current.pop()
 
-def extract_function_ast(program_str: str, function_name: str) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
+
+def extract_function_ast(
+    program_str: str, function_name: str
+) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
     module = ast.parse(program_str)
     function_extractor = FunctionExtractor(function_name)
     function_extractor.visit(module)
@@ -586,30 +714,31 @@ class EnumerateFunctions(ast.NodeVisitor):
         self.current_class.append(node.name)
         self.generic_visit(node)
         self.current_class.pop()
-        
+
     def visit_FunctionDef(self, node):
         self.current_function.append(node.name)
         self.process_function(node)
         self.current_function.pop()
-        
+
     def visit_AsyncFunctionDef(self, node):
         self.current_function.append(node.name)
         self.process_function(node)
         self.current_function.pop()
-        
+
     def process_function(self, node):
         if len(self.current_class) > 0:
-            name = '.'.join(self.current_class) # + '.' + node.name
+            name = ".".join(self.current_class)  # + '.' + node.name
         elif len(self.current_function) > 1:
-            name = '.'.join(self.current_function) # + '.' + node.name
+            name = ".".join(self.current_function)  # + '.' + node.name
         else:
             name = node.name
         self.names.append(name)
         self.generic_visit(node)
-        
-    
+
+
 import ast
 from typing import List
+
 
 class FunctionEnumerator(ast.NodeVisitor):
     def __init__(self):
@@ -633,6 +762,7 @@ class FunctionEnumerator(ast.NodeVisitor):
         self.generic_visit(node)
         self.namespace.pop()
 
+
 def enumerate_functions(program_str: str) -> List[str]:
     """
     Returns a list of names of functions and async functions defined in a given Python program string.
@@ -652,12 +782,14 @@ def enumerate_functions(program_str: str) -> List[str]:
         # Failed parse
         return []
 
+
 import ast
 from typing import List, Union
 
+
 class FunctionReplacer(ast.NodeTransformer):
     def __init__(self, target: str, new_node: ast.AST):
-        self.target = target.split('.')
+        self.target = target.split(".")
         self.current = []
         self.new_node = new_node
 
@@ -683,13 +815,16 @@ class FunctionReplacer(ast.NodeTransformer):
         self.current.pop()
         return result
 
-def replace_function(program_str: str, function_name: str, new_function_str: str) -> str:
+
+def replace_function(
+    program_str: str, function_name: str, new_function_str: str
+) -> str:
     module = ast.parse(program_str)
     new_function_node = ast.parse(new_function_str).body[0]
     function_replacer = FunctionReplacer(function_name, new_function_node)
     new_module = function_replacer.visit(module)
     return ast.unparse(new_module)
-    
+
 
 def extract_names(ast_node: ast.AST) -> Set[str]:
     """
@@ -712,6 +847,7 @@ def extract_names(ast_node: ast.AST) -> Set[str]:
         names.update(extract_names(child))
     return names
 
+
 def get_language_from_file_name(file_name: str) -> str:
     """Given a file name, extracts the extension and maps it to a programming language.
 
@@ -721,12 +857,33 @@ def get_language_from_file_name(file_name: str) -> str:
     Returns:
       A string representing a programming language, or an empty string if the extension is not recognized.
     """
-    ext = file_name.split('.')[-1]
-    language_map = {'js': 'JavaScript', 'ts': 'TypeScript', 'c': 'C', 'cpp': 'C++', 'cs': 'C#', 'swift': 'Swift', 'py': 'Python', 'rs': 'Rust', 'sql': 'SQL', 'css': 'CSS', 'php': 'PHP', 'rb': 'Ruby', 'kt': 'Kotlin', 'go': 'Go', 'r': 'R', 'java': 'Java', 'h': 'C', 'hpp': 'C++', 'hxx': 'C++'}
+    ext = file_name.split(".")[-1]
+    language_map = {
+        "js": "JavaScript",
+        "ts": "TypeScript",
+        "c": "C",
+        "cpp": "C++",
+        "cs": "C#",
+        "swift": "Swift",
+        "py": "Python",
+        "rs": "Rust",
+        "sql": "SQL",
+        "css": "CSS",
+        "php": "PHP",
+        "rb": "Ruby",
+        "kt": "Kotlin",
+        "go": "Go",
+        "r": "R",
+        "java": "Java",
+        "h": "C",
+        "hpp": "C++",
+        "hxx": "C++",
+    }
     if ext in language_map:
         return language_map[ext]
     else:
-        return ''
+        return ""
+
 
 def find_code_start(code: str) -> int:
     """
@@ -739,24 +896,24 @@ def find_code_start(code: str) -> int:
         An integer representing the starting position of the code block.
 
     """
-    lines = code.split('\n')
+    lines = code.split("\n")
     i = 0
-    while i < len(lines) and lines[i].strip() == '':
+    while i < len(lines) and lines[i].strip() == "":
         i += 1
     start_line = i
-    while i < len(lines) and not lines[i].strip().startswith('```'):
+    while i < len(lines) and not lines[i].strip().startswith("```"):
         i += 1
     if i >= len(lines):
         i = start_line
     first_line = lines[i]
     offset = 3
-    if first_line == '```':
+    if first_line == "```":
         return offset
-    matched = re.match(r'^```(?P<language>[a-z]*)', first_line)
+    matched = re.match(r"^```(?P<language>[a-z]*)", first_line)
     if matched:
-        offset += len(matched.group('language')) + 1
+        offset += len(matched.group("language")) + 1
         word = first_line[offset:].strip()
-        if len(word) >= 0 and ' ' not in word:
+        if len(word) >= 0 and " " not in word:
             return len(word) + offset
     return -1
 
@@ -772,14 +929,15 @@ def extract_code_block(completion: dict) -> str:
         str: Extracted code block from the completion dictionary.
     """
     c = completion
-    text = c['choices'][0]['message']['content']
+    text = c["choices"][0]["message"]["content"]
     first_index = find_code_start(text)
-    second_index = text.find('```', first_index + 1)
+    second_index = text.find("```", first_index + 1)
     if first_index == -1 or second_index == -1:
         code_block = text
     else:
         code_block = text[first_index:second_index]
     return code_block
+
 
 def validated(the_code: str, code_block: str) -> bool:
     """Check if code block is valid using AST parsing and code comparison.
@@ -801,18 +959,25 @@ def validated(the_code: str, code_block: str) -> bool:
     return False
 
 
-async def commentate(filename: str, check: bool, code: str, pbar, progress, language: Optional[str]=None) -> Tuple[str, int]:
+async def commentate(
+    filename: str,
+    check: bool,
+    code: str,
+    pbar,
+    progress,
+    language: Optional[str] = None,
+) -> Tuple[str, int]:
     """
     This function takes in a string of code and an optional language parameter. If language is specified,
-    the function translates each docstring and comment in the code to the specified language and includes the 
+    the function translates each docstring and comment in the code to the specified language and includes the
     translated text in the output. If language is not specified, the function does not include any translations
-    in the output. The output text includes the original code, high-level explanatory comments, and any 
-    translated text (if language is specified). 
+    in the output. The output text includes the original code, high-level explanatory comments, and any
+    translated text (if language is specified).
 
     Args:
         filename (str): A string containing the file name.
         code (str): A string of code.
-        language (str, optional): A language code to specify the output language of docstrings and comments. 
+        language (str, optional): A language code to specify the output language of docstrings and comments.
                                 Defaults to None.
 
     Returns:
@@ -822,8 +987,8 @@ async def commentate(filename: str, check: bool, code: str, pbar, progress, lang
     if language:
         translate_text = f"Write all comments in {language}."
     else:
-        translate_text = ''
-    programming_language = get_language_from_file_name(filename) + ' '
+        translate_text = ""
+    programming_language = get_language_from_file_name(filename) + " "
     the_funcs = []
     for func_name in enumerate_functions(code):
         the_code = extract_function_source(code, func_name)
@@ -837,7 +1002,18 @@ async def commentate(filename: str, check: bool, code: str, pbar, progress, lang
         num_items = len(the_funcs)
         # pbar.total = num_items
         # pbar = tqdm(total=num_items, desc=)
-        tasks = [get_comments(programming_language, f, check, translate_text, extract_function_source(code, f), pbar, progress) for f in the_funcs]
+        tasks = [
+            get_comments(
+                programming_language,
+                f,
+                check,
+                translate_text,
+                extract_function_source(code, f),
+                pbar,
+                progress,
+            )
+            for f in the_funcs
+        ]
         results = await asyncio.gather(*tasks)
         code_blocks = results
         for func_name, code_block in zip(the_funcs, code_blocks):
@@ -847,22 +1023,24 @@ async def commentate(filename: str, check: bool, code: str, pbar, progress, lang
                 code = replace_function(code, func_name, code_block)
     import_stmt = generate_import(ast.parse(code))
     if import_stmt:
-        code = import_stmt + '\n' + code
+        code = import_stmt + "\n" + code
     global successful_comments
     return (code, successful_comments)
 
+
 # print(generate_import(ast.parse('x = 12\n\ndef whatever(n: float) -> Dict[str]:\n    """Creates a dictionary with a pre-defined key-value pair where key is \'X\' and value is 12.\nIf the input argument n is equal to 0.1234, then a new key-value pair is added to the dictionary \nwith key \'COOL\' and value 1.\n\n:param n: A float input value.\n:return: A dictionary containing key-value pairs."""\n    d = {\'X\': 12}\n    if n == 0.1234:\n        d[\'COOL\'] = 1\n    return d\n\ndef absolutely(n: int) -> Union[int, bool]:\n    """Return the absolute value of the input integer.\n\nArgs:\n    n (int): The input integer.\n\nReturns:\n    int: The absolute value of the input integer."""\n    if n < 0:\n        return -n\n    else:\n        return n\nprint(\'WOOT\')\n')))
+
 
 def api_key() -> str:
     """
     Get the API key from the environment variable 'OPENAI_API_KEY'.
-    
+
     :return: The value of the environment variable 'OPENAI_API_KEY'.
     :rtype: str
     """
-    key = ''
+    key = ""
     try:
-        key = os.environ['OPENAI_API_KEY']
+        key = os.environ["OPENAI_API_KEY"]
     except:
         pass
     return key
