@@ -1,46 +1,45 @@
-import ast_comments as ast
-import openai  # _async
 import asyncio
 import contextlib
-import litellm
 import logging
-import openai
 import os
 import re
-import sys
-import traceback
-import asyncio
 import subprocess
-import logging
 import tempfile
-import os
-import httpx
-import ast
 import traceback
-
-from collections import deque
-from rich.progress import Progress
-
-from typing import (
-    Any,
-    cast,
-    Deque,
-    DefaultDict,
-    Dict,
-    FrozenSet,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Union,
-)
 import typing
+from collections import deque
+from typing import Any
+from typing import List
+from typing import Optional
+from typing import Set
+from typing import Tuple
+from typing import Union
+
+import ast_comments as ast
+import httpx
+import litellm
+import openai  # _async
+from rich.progress import Progress
 
 from . import collect_types
 from . import strip_comments
 from . import strip_imports
 from . import strip_types
 
+
+litellm.set_verbose = False
+logname = "commentator.log"
+logging.basicConfig(
+    filename=logname,
+    filemode="w",
+    format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+    level=logging.INFO,
+)
+logging.info("Running Commentator.")
+logging.getLogger().setLevel(logging.INFO) # ERROR)
+
+total_cost = 0
 
 def extract_python_code(input_string):
     lines = input_string.split("\n")
@@ -75,7 +74,10 @@ def extract_python_code(input_string):
     if in_func:
         functions.append("\n".join(current_func))
 
-    return functions[0]  # For now, only return first function
+    if len(functions) >= 1:
+        return functions[0]  # For now, only return first function
+    else:
+        return None
 
 
 def prev_extract_python_code(input_str: str) -> str:
@@ -127,18 +129,6 @@ def print_key_info():
         "   https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
     )
 
-
-litellm.set_verbose = False
-logname = "commentator.log"
-logging.basicConfig(
-    filename=logname,
-    filemode="w",
-    format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-    level=logging.INFO,
-)
-logging.info("Running Commentator.")
-logging.getLogger().setLevel(logging.ERROR)
 
 successful_comments = 0
 
@@ -265,6 +255,8 @@ async def get_comments(
                     }
                 ],
             )
+            global total_cost
+            total_cost += float(litellm.completion_cost(completion_response=completion))
 
             code_block = completion["choices"][0]["message"]["content"]
 
@@ -272,7 +264,10 @@ async def get_comments(
 
             code_block = extract_python_code(code_block)
 
-            logging.info("AFTER extraction: " + code_block)
+            if not code_block:
+                logging.info("Failed to extract code.")
+            else:
+                logging.info("AFTER extraction: " + code_block)
 
             if check:
                 if "INCONSISTENT" in code_block:
@@ -304,7 +299,6 @@ async def get_comments(
     except httpx.ReadTimeout:
         # exponential backoff
         timeout_value *= 2
-        pass
     except litellm.exceptions.PermissionDeniedError:
         print("Permission denied error.")
         print("You may need to request access to Claude:")
@@ -432,7 +426,6 @@ async def get_comments_prev(
     except httpx.ReadTimeout:
         # exponential backoff
         timeout_value *= 2
-        pass
     except litellm.exceptions.PermissionDeniedError:
         print("Permission denied error.")
         print("You may need to request access to Claude:")
@@ -503,7 +496,6 @@ def update_args(
     new_args = []
     for arg in new_function_ast.args.args:
         if arg.arg in arg_names:
-            old_arg = old_function_ast.args.args[arg_names.index(arg.arg)]
             new_arg = ast.arg(arg=arg.arg, annotation=arg.annotation)
             new_args.append(new_arg)
         else:
@@ -999,7 +991,7 @@ async def commentate(
         return (code, 0)
     else:
         # from tqdm import tqdm
-        num_items = len(the_funcs)
+        # num_items = len(the_funcs)
         # pbar.total = num_items
         # pbar = tqdm(total=num_items, desc=)
         tasks = [
@@ -1020,7 +1012,11 @@ async def commentate(
             if not code_block:
                 continue
             if not check:
-                code = replace_function(code, func_name, code_block)
+                prev_code = code
+                try:
+                    code = replace_function(code, func_name, code_block)
+                except SyntaxError:
+                    code = prev_code
     import_stmt = generate_import(ast.parse(code))
     if import_stmt:
         code = import_stmt + "\n" + code

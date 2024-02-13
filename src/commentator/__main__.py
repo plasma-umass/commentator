@@ -149,5 +149,6 @@ def main(file, api_key, check, language, strip_types, strip_comments):
         if strip_types or strip_comments:
             return
         asyncio.run(do_it(api_key, check, language, progress, file))
-
+        print(f"Total cost = ${commentator.total_cost:.2f}")
+        
 main()
