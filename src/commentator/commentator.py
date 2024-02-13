@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import traceback
 import typing
@@ -40,6 +41,7 @@ logging.info("Running Commentator.")
 logging.getLogger().setLevel(logging.WARNING)
 
 total_cost = 0
+
 
 def extract_python_code(input_string):
     lines = input_string.split("\n")
@@ -283,7 +285,9 @@ async def get_comments(
             code_block = extract_python_code(code_block)
 
             if not code_block:
-                logging.warning("Failed to extract code from this block:\n" + prev_code_block)
+                logging.warning(
+                    "Failed to extract code from this block:\n" + prev_code_block
+                )
                 continue
             else:
                 logging.info("AFTER extraction: " + code_block)
@@ -320,20 +324,18 @@ async def get_comments(
 
     except httpx.LocalProtocolError:
         print_key_info()
-        import sys
-
         sys.exit(1)
     except httpx.ReadTimeout:
         # exponential backoff
         timeout_value *= 2
     except litellm.exceptions.PermissionDeniedError:
+        global service
         print("Permission denied error.")
-        print("You may need to request access to Claude:")
-        print(
-            "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
-        )
-        import sys
-
+        if service == "Bedrock":
+            print("You may need to request access to Claude:")
+            print(
+                "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
+            )
         sys.exit(1)
     except Exception as e:
         print(f"Commentator exception: {e}")
@@ -628,10 +630,6 @@ class EnumerateFunctions(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-import ast
-from typing import List
-
-
 class FunctionEnumerator(ast.NodeVisitor):
     def __init__(self):
         self.function_names = []
@@ -673,10 +671,6 @@ def enumerate_functions(program_str: str) -> List[str]:
     except SyntaxError:
         # Failed parse
         return []
-
-
-import ast
-from typing import List, Union
 
 
 class FunctionReplacer(ast.NodeTransformer):
