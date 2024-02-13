@@ -942,10 +942,11 @@ def validated(the_code: str, code_block: str) -> bool:
         A boolean indicating whether the code block is valid or not.
     """
     try:
-        result_ast = ast.parse(code_block)
+        result_ast_code_block = ast.parse(code_block)
+        result_ast_the_code = ast.parse(the_code)
     except:
         return False
-    if result_ast and has_types(code_block):
+    if result_ast_code_block and has_types(code_block):
         # TODO: extend with type checking
         return True
     return False
