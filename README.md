@@ -2,7 +2,7 @@
 
 by [Emery Berger](https://emeryberger.com)
 
-Commentator uses OpenAI's large language model (GPT) to add high-level
+Commentator leverages large language models to add high-level
 explanatory comments, docstrings, *and types* to Python code.
 
 [![PyPI](https://img.shields.io/pypi/v/python-commentator.svg)](https://pypi.org/project/python-commentator/)
@@ -12,11 +12,9 @@ explanatory comments, docstrings, *and types* to Python code.
 
 ## Usage
 
- >  **Note**
- >
  >  Commentator needs to be connected to an [OpenAI account](https://openai.com/api/) or an Amazon Web Services account.
  >
- >  _OpenAI_
+ >  ### OpenAI
  >
  >  _Your account will need to have a positive balance for this to work_
  >  ([check your OpenAI balance](https://platform.openai.com/usage)).
@@ -36,9 +34,9 @@ explanatory comments, docstrings, *and types* to Python code.
  >  $env:OPENAI_API_KEY=<your-api-key>
  >  ```
  >
- >  _Amazon Bedrock_
+ >  ### Amazon Bedrock
  >
- >  **New**: Commentator now has alpha support for Amazon Bedrock, using the Claude model.
+ >  Commentator now supports Amazon Bedrock, using the Claude model.
  >  To use Bedrock, you need to set three environment variables.
  >
  >  ```bash
