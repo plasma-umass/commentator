@@ -9,6 +9,14 @@ import os
 import re
 import sys
 import traceback
+import asyncio
+import subprocess
+import logging
+import tempfile
+import os
+import httpx
+import ast
+import traceback
 
 from collections import deque
 from rich.progress import Progress
@@ -78,6 +86,7 @@ def prev_extract_python_code(input_str: str) -> str:
 
     
 def print_key_info():
+    import os
     print("You need a key (or keys) from an AI service to use CWhy.")
     print()
     print("OpenAI:")
@@ -88,8 +97,16 @@ def print_key_info():
     print("Bedrock:")
     print("  To use Bedrock, you need an AWS account.")
     print("  Set the following environment variables:")
-    print("    export AWS_ACCESS_KEY_ID=<your key id>")
-    print("    export AWS_SECRET_ACCESS_KEY=<your secret key>")
+    your_key_id = "<your key id>"
+    with contextlib.suppress(KeyError):
+        if os.environ["AWS_ACCESS_KEY_ID"]:
+            your_key_id += " (already defined)"
+    print(f"    export AWS_ACCESS_KEY_ID={your_key_id}")
+    your_secret_key = "<your secret key>"
+    with contextlib.suppress(KeyError):
+        if os.environ["AWS_SECRET_ACCESS_KEY"]:
+            your_secret_key += " (already defined)"
+    print(f"    export AWS_SECRET_ACCESS_KEY={your_secret_key}")
     print("    export AWS_REGION_NAME=us-west-2")
     print("  You also need to request access to Claude:")
     print(
@@ -130,7 +147,8 @@ def generate_import(node):
     typing that were declared as annotations in the given AST node.
     """
     # Find all type annotations in the node
-    typing_classes = ["List", "Tuple", "Set", "FrozenSet", "Callable", "Dict", "DefaultDict", "Deque", "Any", "TextIO", "Union", "Optional", "cast"]
+    typing_classes = [item for item in dir(typing) if not item.startswith('_')]
+    # ["List", "Tuple", "Set", "FrozenSet", "Callable", "Dict", "DefaultDict", "Deque", "Any", "TextIO", "Union", "Optional", "cast"]
     types_used = collect_types.collect_types(node)
     typing_imports = set()
     for t in types_used:
@@ -144,7 +162,113 @@ def generate_import(node):
     else:
         return ''
 
+
+def equivalent_code(the_code, code_block):
+    the_code_ast = ast.parse(the_code)
+    code_block_ast = ast.parse(code_block)
+    stripped_the_code = strip_comments.strip_comments(the_code_ast)
+    stripped_the_code = strip_types.strip_types(ast.parse(stripped_the_code))
+    stripped_the_code = strip_imports.strip_imports(ast.parse(stripped_the_code))
+    stripped_code_block = strip_comments.strip_comments(code_block_ast)
+    stripped_code_block = strip_types.strip_types(ast.parse(stripped_code_block))
+    stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
+    return stripped_the_code, stripped_code_block
+
+    
+async def run_mypy_on_code(file_name: str, code: str) -> (str, int):
+    """
+    Run mypy on the given code string from the given file and return the stderr output containing mypy error messages and the number of errors.
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.py') as tmp:
+        tmp_file_name = tmp.name
+        tmp.write(code.encode('utf-8'))
+        tmp.flush()
+        result = await asyncio.create_subprocess_exec('mypy', '--strict', tmp_file_name, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = await result.communicate()
+        os.unlink(tmp_file_name)  # Delete the temporary file
+        stdout_decoded = stdout.decode('utf-8')
+        error_lines = [line.replace(tmp_file_name, file_name) for line in stdout_decoded.split('\n') if 'error:' in line]
+        return error_lines, len(error_lines)
+
+    
 async def get_comments(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Any: # Optional[openai.api_resources.Completion]:
+    import httpx
+    if "Python" in programming_language:
+        if check:
+            content = f'Report ALL comments in the given {programming_language}code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}'
+        else:
+            content = f'Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}'
+    elif programming_language == "C" or programming_language == "C++":
+        content = f"Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
+    else:
+        content = f'Add comments to the following {programming_language}code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}'
+        logging.info(content)
+        
+    try:
+        max_trials = 3
+        timeout_value = 30
+        for trial in range(max_trials):
+            mypy_errors, error_count = await run_mypy_on_code("prog.py", the_code)
+            # Append mypy errors to the code as comments if check is True and errors exist
+            error_comments = ""
+            if error_count > 0:
+                error_comments = "Fix these Mypy errors:\n" + '\n'.join([f'# {error}' for error in mypy_errors])
+            completion = await litellm.acompletion(
+                model = _DEFAULT_FALLBACK_MODELS[0],
+                messages = [{'role': 'system', 'content': 'You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.', 'role': 'user', 'content': content + error_comments}]
+            )
+
+            code_block = completion['choices'][0]['message']['content']
+            
+            logging.info(code_block)
+            
+            code_block = extract_python_code(code_block)
+            
+            logging.info("AFTER extraction: " + code_block)
+            
+            if check:
+                if "INCONSISTENT" in code_block:
+                    print(f"inconsistency found:\n{code_block}")
+                break
+                
+            logging.info(f'PROCESSING {code_block}')
+           
+            if validated(the_code, code_block):
+                logging.info(f'Validated code block:\n-----\n{code_block}\n-----')
+                global successful_comments
+                successful_comments += 1
+                # If the commented version is equivalent to the uncommented version, use it.
+                stripped_the_code, stripped_code_block = equivalent_code(the_code, code_block)
+                if stripped_the_code == stripped_code_block:
+                    logging.info(f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}")
+                else:
+                    continue
+                
+    except (httpx.LocalProtocolError):
+        print_key_info()
+        import sys
+        sys.exit(1)
+    except(httpx.ReadTimeout):
+        # exponential backoff
+        timeout_value *= 2
+        pass
+    except litellm.exceptions.PermissionDeniedError:
+        print("Permission denied error.")
+        print("You may need to request access to Claude:")
+        print(
+            "https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
+        )
+        import sys
+        sys.exit(1)
+    except Exception as e:
+        print(f"Commentator exception: {e}")
+        print(f"Please post as an issue to https://github.com/plasma-umass/commentator")
+        traceback.print_exc()
+        return ''
+    progress.update(pbar, advance=1)
+    return code_block
+
+async def get_comments_prev(programming_language: str, func_name: str, check: bool, translate_text: str, the_code: str, pbar, progress) -> Any: # Optional[openai.api_resources.Completion]:
     import httpx
     if "Python" in programming_language:
         if check:
