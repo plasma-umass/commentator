@@ -43,39 +43,65 @@ logging.getLogger().setLevel(logging.WARNING)
 total_cost = 0
 
 
-def extract_python_code(input_string):
-    lines = input_string.split("\n")
-    functions = []
-    current_func = []
-    in_func = False
-    indent_level = 0
+def extract_python_code(input_string: str) -> Optional[str]:
+    """
+    This function takes in a string of text with possibly multiple Python
+    functions and extracts the first function it can find. It assumes that functions
+    start with the keyword 'def' at the beginning of a line and that indentation is
+    used to define the body of the function. It collects all the lines that belong to
+    the same function and returns it as a string.
 
+    Args:
+    input_string (str): A string that may potentially contain Python functions.
+
+    Returns:
+    Optional[str]: A string of the first Python function found, or None if no function is found.
+    """
+    # Split the input string into lines
+    lines = input_string.split('\n')
+    # Initialize an empty list to store functions
+    functions = []
+    # Initialize an empty list to store the current function being extracted
+    current_func = []
+    # Initialize variable to track if we're inside a function definition
+    in_func = False
+    # Initialize variable to track the indent level of the function
+    indent_level = 0
+    # Loop over all lines of code
     for line in lines:
-        if line.strip().startswith("def ") and not in_func:
-            # Start of a new function
+        # If the line starts with 'def ' and we're not already in a function
+        if line.strip().startswith('def ') and (not in_func):
+            # We've encountered the start of a new function
             in_func = True
-            current_func = [line]
+            current_func = [line]  # Start collecting lines for this function
+            # Set the indent level to the current line's indentation
             indent_level = len(line) - len(line.lstrip())
+        # If we're already in a function
         elif in_func:
+            # Get the current line's indentation
             current_indent = len(line) - len(line.lstrip())
-            if line.strip() == "" or current_indent > indent_level:
-                # Part of the current function
+            # If the line is not blank, and its indented level is deeper than 
+            # or equal to the function declaration
+            if line.strip() == '' or current_indent > indent_level:
+                # This line is part of the current function
                 current_func.append(line)
             else:
-                # End of the current function
-                functions.append("\n".join(current_func))
+                # This line marks the end of the current function
+                # Add the current function to our list of functions
+                functions.append('\n'.join(current_func))
+                # Reset for the next function
                 in_func = False
                 indent_level = 0
                 # Check if this line is a new function
-                if line.strip().startswith("def "):
+                if line.strip().startswith('def '):
                     in_func = True
                     current_func = [line]
                     indent_level = len(line) - len(line.lstrip())
-
-    # Add the last function if the file ends without dedenting
+    # If the file ends without dedenting, add the last function to the list
     if in_func:
-        functions.append("\n".join(current_func))
-
+        functions.append('\n'.join(current_func))
+    # If we found at least one function, return the first one
+    # Otherwise, return None
     if len(functions) >= 1:
         return functions[0]  # For now, only return first function
     else:
@@ -176,14 +202,19 @@ def generate_import(node):
 
 
 def equivalent_code(the_code, code_block):
-    the_code_ast = ast.parse(the_code)
-    code_block_ast = ast.parse(code_block)
-    stripped_the_code = strip_comments.strip_comments(the_code_ast)
-    stripped_the_code = strip_types.strip_types(ast.parse(stripped_the_code))
-    stripped_the_code = strip_imports.strip_imports(ast.parse(stripped_the_code))
-    stripped_code_block = strip_comments.strip_comments(code_block_ast)
-    stripped_code_block = strip_types.strip_types(ast.parse(stripped_code_block))
-    stripped_code_block = strip_imports.strip_imports(ast.parse(stripped_code_block))
+
+    def strip_all(code):
+        the_ast = ast.parse(code)
+        stripped = strip_comments.strip_comments(the_ast)
+        stripped = strip_types.strip_types(ast.parse(stripped))
+        stripped = strip_imports.strip_imports(ast.parse(stripped))
+        return stripped
+        
+    stripped_the_code = strip_all(the_code)
+    stripped_code_block = strip_all(code_block)
+
+    logging.info(f"Stripped the code = \n{stripped_the_code}")
+    logging.info(f"Stripped code block = \n{stripped_code_block}")
     return stripped_the_code, stripped_code_block
 
 
@@ -259,7 +290,7 @@ async def get_comments(
             mypy_errors, error_count = await run_mypy_on_code("prog.py", the_code)
             error_comments = ""
             if error_count > 0:
-                error_comments = "Fix these Mypy errors:\n" + "\n".join(
+                error_comments = "\nFix these Mypy errors:\n" + "\n".join(
                     [f"# {error}" for error in mypy_errors]
                 )
             completion = await litellm.acompletion(
@@ -267,13 +298,16 @@ async def get_comments(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```.",
+                        "content": "You are an expert {programming_language}programming assistant who ONLY responds with blocks of commented and typed code. You never respond with text. Just code, starting with ``` and ending with ```." },
+                    {
                         "role": "user",
                         "content": prompt + error_comments,
                     }
                 ],
             )
 
+            logging.info(completion)
+            
             global total_cost
             total_cost += float(litellm.completion_cost(completion_response=completion))
 
@@ -313,12 +347,13 @@ async def get_comments(
                             f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
                         )
                     else:
+                        logging.info(f"CODE DIFFERENT {len(stripped_the_code)} {len(stripped_code_block)}\n")
                         code_block = ""
                         continue
                 except IndentationError:
+                    logging.info("Indentation error.")
                     code_block = ""
                     continue
-
             else:
                 code_block = ""
 
