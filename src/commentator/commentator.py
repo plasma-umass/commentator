@@ -16,10 +16,9 @@ from typing import Set
 from typing import Tuple
 from typing import Union
 
-import ast_comments as ast
+import ast_comments as ast # type: ignore
 import httpx
-import litellm
-import openai  # _async
+import litellm # type: ignore
 from rich.progress import Progress
 
 from . import collect_types
@@ -38,10 +37,10 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logging.info("Running Commentator.")
+# logging.getLogger().setLevel(logging.INFO)
 logging.getLogger().setLevel(logging.WARNING)
 
-total_cost = 0
-
+total_cost = 0.0
 
 def extract_python_code(input_string: str) -> Optional[str]:
     """
@@ -164,19 +163,25 @@ successful_comments = 0
 service = None
 _DEFAULT_FALLBACK_MODELS = []
 
-with contextlib.suppress(KeyError):
-    if os.environ["OPENAI_API_KEY"]:
-        service = "OpenAI"
-        _DEFAULT_FALLBACK_MODELS = ["openai/gpt-4", "openai/gpt-3.5-turbo"]
-with contextlib.suppress(KeyError):
-    if not _DEFAULT_FALLBACK_MODELS:
-        if {
-            "AWS_ACCESS_KEY_ID",
-            "AWS_SECRET_ACCESS_KEY",
-            "AWS_REGION_NAME",
-        } <= os.environ.keys():
-            service = "Bedrock"
-            _DEFAULT_FALLBACK_MODELS = ["bedrock/anthropic.claude-v2:1"]
+if { "USE_OLLAMA" } <= os.environ.keys():
+    service = "ollama"
+    _DEFAULT_FALLBACK_MODELS = ["ollama/deepseek-coder:33b-instruct", "ollama/codellama:70b-python", "ollama/llama2"]
+elif { "OPENAI_API_KEY" } <= os.environ.keys():
+    service = "OpenAI"
+    _DEFAULT_FALLBACK_MODELS = ["openai/gpt-4", "openai/gpt-3.5-turbo"]
+elif {
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION_NAME",
+    } <= os.environ.keys():
+        service = "Bedrock"
+        _DEFAULT_FALLBACK_MODELS = ["bedrock/anthropic.claude-v2:1"]
+else:
+    print_key_info()
+    sys.exit(1)
+
+
+print(f"Using {service}")
 
 
 def generate_import(node):
@@ -218,7 +223,7 @@ def equivalent_code(the_code, code_block):
     return stripped_the_code, stripped_code_block
 
 
-async def run_mypy_on_code(file_name: str, code: str) -> (str, int):
+async def run_mypy_on_code(file_name: str, code: str) -> Tuple[list[str], int]:
     """
     Run mypy on the given code string from the given file and return the stderr output containing mypy error messages and the number of errors.
     """
@@ -282,6 +287,8 @@ async def get_comments(
         programming_language, func_name, check, translate_text, the_code
     )
 
+    last_good_code_block = ""
+    
     try:
         max_trials = 3
         timeout_value = 30
@@ -295,6 +302,7 @@ async def get_comments(
                 )
             completion = await litellm.acompletion(
                 model=_DEFAULT_FALLBACK_MODELS[0],
+                # TO DO: retry models in order on failures
                 messages=[
                     {
                         "role": "system",
@@ -307,9 +315,19 @@ async def get_comments(
             )
 
             logging.info(completion)
-            
+
             global total_cost
-            total_cost += float(litellm.completion_cost(completion_response=completion))
+            try:
+                total_cost += float(litellm.completion_cost(completion_response=completion))
+            except litellm.exceptions.NotFoundError:
+                # Log the error exactly once.
+                no_cost_model_reported: bool
+                try:
+                    if no_cost_model_reported:
+                        pass
+                except NameError:
+                    logging.info(f"No cost model found for the current model: {_DEFAULT_FALLBACK_MODELS[0]}")
+                    no_cost_model_reported = True
 
             code_block = completion["choices"][0]["message"]["content"]
 
@@ -346,6 +364,7 @@ async def get_comments(
                         logging.info(
                             f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
                         )
+                        last_good_code_block = code_block
                     else:
                         logging.info(f"CODE DIFFERENT {len(stripped_the_code)} {len(stripped_code_block)}\n")
                         code_block = ""
@@ -378,7 +397,7 @@ async def get_comments(
         traceback.print_exc()
         return ""
     progress.update(pbar, advance=1)
-    return code_block
+    return last_good_code_block
 
 
 def replace_function_annotations(target, source):
@@ -596,7 +615,7 @@ def now_has_types(code1, code2):
 class FunctionExtractor(ast.NodeVisitor):
     def __init__(self, target: str):
         self.target = target.split(".")
-        self.current = []
+        self.current : List[str] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self.current.append(node.name)
@@ -711,7 +730,7 @@ def enumerate_functions(program_str: str) -> List[str]:
 class FunctionReplacer(ast.NodeTransformer):
     def __init__(self, target: str, new_node: ast.AST):
         self.target = target.split(".")
-        self.current = []
+        self.current : List[str] = []
         self.new_node = new_node
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
