@@ -12,8 +12,18 @@ explanatory comments, docstrings, *and types* to Python code.
 
 ## Usage
 
- >  Commentator needs to be connected to an [OpenAI account](https://openai.com/api/) or an Amazon Web Services account.
+ >  
+ >  To work, Commentator needs to be connected to a local AI service, [OpenAI account](https://openai.com/api/), or an Amazon Web Services account.
  >
+ >  ### Local AI service (Ollama)
+ >  
+ >  Commentator can now use a locally installed AI service; it currently supports [Ollama](https://ollama.com). To use Ollama,
+ >  install it and set the environment variable `USE_OLLAMA`:
+ >  
+ >  ```bash
+ >    export USE_OLLAMA=1
+ >  ```
+ >  
  >  ### OpenAI
  >
  >  _Your account will need to have a positive balance for this to work_
