@@ -53,7 +53,7 @@ explanatory comments, docstrings, *and types* to Python code.
  >  # On Linux/MacOS:
  >  export AWS_ACCESS_KEY_ID=<your-access-key>
  >  export AWS_SECRET_ACCESS_KEY=<your-secret-key>
- >  export AWS_REGION_NAME=<your-region>
+ >  export AWS_REGION_NAME=us-west-2
  >  ```
  >
  >  If you do not already have access keys, you should be able create them by
@@ -65,7 +65,7 @@ explanatory comments, docstrings, *and types* to Python code.
  >
  >     https://us-east-1.console.aws.amazon.com/bedrock/home?region=us-east-1#/modelaccess
  >
- >  Commentator will automatically select which AI service to use (OpenAI or AWS Bedrock) when it detects that the appropriate
+ >  Commentator will automatically select which AI service to use (local, OpenAI or AWS Bedrock) when it detects that the appropriate
  >  environment variables have been set.
 
 Commentator takes a path to a Python file and an optional language
