@@ -300,6 +300,10 @@ async def get_comments(
                 error_comments = "\nFix these Mypy errors:\n" + "\n".join(
                     [f"# {error}" for error in mypy_errors]
                 )
+            kwargs = {}
+            global service
+            if service == "Bedrock":
+                kwargs["max_tokens"] = 100_000
             completion = await litellm.acompletion(
                 model=_DEFAULT_FALLBACK_MODELS[0],
                 # TO DO: retry models in order on failures
@@ -312,6 +316,7 @@ async def get_comments(
                         "content": prompt + error_comments,
                     }
                 ],
+                **kwargs
             )
 
             logging.info(completion)
@@ -374,6 +379,7 @@ async def get_comments(
                     code_block = ""
                     continue
             else:
+                logging.info("INVALID CODE")
                 code_block = ""
 
     except httpx.LocalProtocolError:
@@ -383,7 +389,6 @@ async def get_comments(
         # exponential backoff
         timeout_value *= 2
     except litellm.exceptions.PermissionDeniedError:
-        global service
         print("Permission denied error.")
         if service == "Bedrock":
             print("You may need to request access to Claude:")
@@ -924,6 +929,7 @@ async def commentate(
     Returns:
         str, int: A string of the processed code and the number of successfully commented functions.
     """
+    global service
     assert service
     if language:
         translate_text = f"Write all comments in {language}."
