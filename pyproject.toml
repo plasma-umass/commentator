@@ -8,7 +8,7 @@ version = "0.2.9"
 authors = [
   { name="Emery Berger", email="emery.berger@gmail.com" },
 ]
-dependencies = [   "boto3>=1.34.35", "openai>=1.3.6", "rich>=12.4.4", "ast-comments>=1.0.0", "click>=8.1.3", "litellm>=1.22.3", "mypy==1.8.0", "mypy-extensions==1.0.0" ]
+dependencies = [   "boto3>=1.34.35", "openai>=1.3.6", "rich>=12.4.4", "ast-comments>=1.0.0", "click>=8.1.3", "litellm>=1.22.3", "mypy==1.8.0", "mypy-extensions==1.0.0", "async-generator==1.10" ]
 description = "An automatic commenter and type inference tool for Python code."
 readme = "README.md"
 requires-python = ">=3.7"
