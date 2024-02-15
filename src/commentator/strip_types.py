@@ -45,7 +45,7 @@ class TypeStripper(ast.NodeTransformer):
         return node
     
     def visit_AnnAssign(self, node):
-        if node.simple or not node.value:
+        if not node.value:
             return None
         return ast.Assign([node.target], node.value)
 
