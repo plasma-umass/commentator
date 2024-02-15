@@ -38,7 +38,7 @@ logging.basicConfig(
 )
 logging.info("Running Commentator.")
 # logging.getLogger().setLevel(logging.INFO)
-logging.getLogger().setLevel(logging.WARNING)
+# logging.getLogger().setLevel(logging.WARNING)
 
 total_cost = 0.0
 
@@ -130,14 +130,17 @@ def prev_extract_python_code(input_str: str) -> str:
 def print_key_info():
     import os
 
-    print("You need a key (or keys) from an AI service to use CWhy.")
-    print()
+    print("You can use a local LLM or an AI service to use Commentator.")
+    print("Local:")
+    print("  Commentator currently supports Ollama for local LLM use (https://ollama.com/).")
+    print("  To use Ollama, set the environment variable USE_OLLAMA:")
+    print("    export USE_OLLAMA=1")
     print("OpenAI:")
     print("  You can get a key here: https://platform.openai.com/api-keys")
     print("  Set the environment variable OPENAI_API_KEY to your key value:")
     print("    export OPENAI_API_KEY=<your key>")
     print()
-    print("Bedrock:")
+    print("Amazon Bedrock:")
     print("  To use Bedrock, you need an AWS account.")
     print("  Set the following environment variables:")
     your_key_id = "<your key id>"
@@ -181,7 +184,7 @@ else:
     sys.exit(1)
 
 
-print(f"Using {service}")
+print(f"Using {service}", file=sys.stderr)
 
 
 def generate_import(node):
@@ -206,21 +209,20 @@ def generate_import(node):
         return ""
 
 
-def equivalent_code(the_code, code_block):
+def strip_all(code):
+    the_ast = ast.parse(code)
+    stripped = strip_comments.strip_comments(the_ast)
+    stripped = strip_types.strip_types(ast.parse(stripped))
+    stripped = strip_imports.strip_imports(ast.parse(stripped))
+    return stripped
+    
+def equivalent_code(original_code, proposed_new_code):
+    stripped_original_code = strip_all(original_code)
+    stripped_proposed_new_code = strip_all(proposed_new_code)
 
-    def strip_all(code):
-        the_ast = ast.parse(code)
-        stripped = strip_comments.strip_comments(the_ast)
-        stripped = strip_types.strip_types(ast.parse(stripped))
-        stripped = strip_imports.strip_imports(ast.parse(stripped))
-        return stripped
-        
-    stripped_the_code = strip_all(the_code)
-    stripped_code_block = strip_all(code_block)
-
-    logging.info(f"Stripped the code = \n{stripped_the_code}")
-    logging.info(f"Stripped code block = \n{stripped_code_block}")
-    return stripped_the_code, stripped_code_block
+    logging.info(f"Stripped the code = \n{stripped_original_code}")
+    logging.info(f"Stripped code block = \n{stripped_proposed_new_code}")
+    return stripped_original_code, stripped_proposed_new_code
 
 
 async def run_mypy_on_code(file_name: str, code: str) -> Tuple[list[str], int]:
@@ -252,22 +254,18 @@ async def run_mypy_on_code(file_name: str, code: str) -> Tuple[list[str], int]:
 def generate_prompt(
     programming_language: str,
     func_name: str,
-    check: bool,
     translate_text: str,
-    the_code: str,
+    original_code: str,
 ) -> str:
     """
     Generate the request prompt based on the programming language and specifications.
     """
     if "Python" in programming_language:
-        if check:
-            return f"Report ALL comments in the given {programming_language} code that are inconsistent with what the code actually does. Put that report inline as a new comment to the code with an explanation prefaced by `# INCONSISTENT COMMENT`. ONLY RETURN THE UPDATED FUNCTION AND COMMENTS: {the_code}"
-        else:
-            return f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{the_code}"
+        return f"Add comments to all code. Add both low-level and high-level explanatory comments as per-line comments starting with #, PEP 257 docstrings, and PEP 484 style type annotations. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments or types, augment them rather than replacing them. DO NOT DELETE EXISTING COMMENTS. If existing comments are inconsistent with the code, correct them. Every function argument and return value should be typed. {translate_text}ONLY RETURN THE UPDATED FUNCTION. The code:\n{original_code}"
     elif programming_language in ["C", "C++"]:
-        return f"Add comments to the following {programming_language} code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
+        return f"Add comments to the following {programming_language} code. Add both low-level and high-level explanatory comments as per-line comments. Use Google's comment style. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. Use swear words judiciously. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {original_code}"
     else:
-        prompt = f"Add comments to the following {programming_language} code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {the_code}"
+        prompt = f"Add comments to the following {programming_language} code. Add both low-level and high-level explanatory comments as per-line comments. Make sure to add comments before all loops, branches, and complicated lines of code. Infer what each function does, using the names, comments, and computations as hints. If there are existing comments, augment them rather than replacing them. If existing comments are inconsistent with the code, correct them. {translate_text}ONLY RETURN THE UPDATED FUNCTION: {original_code}"
         logging.info(prompt)
         return prompt
 
@@ -275,16 +273,15 @@ def generate_prompt(
 async def get_comments(
     programming_language: str,
     func_name: str,
-    check: bool,
     translate_text: str,
-    the_code: str,
+    original_code: str,
     pbar,
     progress,
-) -> Any:  # Optional[openai.api_resources.Completion]:
+) -> Any:
     import httpx
 
     prompt = generate_prompt(
-        programming_language, func_name, check, translate_text, the_code
+        programming_language, func_name, translate_text, original_code
     )
 
     last_good_code_block = ""
@@ -294,7 +291,7 @@ async def get_comments(
         timeout_value = 30
         for trial in range(max_trials):
             # Append mypy errors to the code as comments if there are any errors
-            mypy_errors, error_count = await run_mypy_on_code("prog.py", the_code)
+            mypy_errors, error_count = await run_mypy_on_code("prog.py", original_code)
             error_comments = ""
             if error_count > 0:
                 error_comments = "\nFix these Mypy errors:\n" + "\n".join(
@@ -334,44 +331,39 @@ async def get_comments(
                     logging.info(f"No cost model found for the current model: {_DEFAULT_FALLBACK_MODELS[0]}")
                     no_cost_model_reported = True
 
-            code_block = completion["choices"][0]["message"]["content"]
+            proposed_new_code = completion["choices"][0]["message"]["content"]
 
-            logging.info(code_block)
+            logging.info(proposed_new_code)
 
-            prev_code_block = code_block
-            code_block = extract_python_code(code_block)
+            prev_proposed_new_code = proposed_new_code
+            proposed_new_code = extract_python_code(proposed_new_code)
 
-            if not code_block:
+            if not proposed_new_code:
                 logging.warning(
-                    "Failed to extract code from this block:\n" + prev_code_block
+                    "Failed to extract code from this block:\n" + prev_proposed_new_code
                 )
                 continue
             else:
-                logging.info("AFTER extraction: " + code_block)
+                logging.info("AFTER extraction: " + proposed_new_code)
 
-            if check:
-                if "INCONSISTENT" in code_block:
-                    print(f"inconsistency found:\n{code_block}")
-                break
+            logging.info(f"PROCESSING {proposed_new_code}")
 
-            logging.info(f"PROCESSING {code_block}")
-
-            if validated(the_code, code_block):
-                logging.info(f"Validated code block:\n-----\n{code_block}\n-----")
+            if validated(original_code, proposed_new_code):
+                logging.info(f"Validated code block:\n-----\n{proposed_new_code}\n-----")
                 global successful_comments
                 successful_comments += 1
                 # If the commented version is equivalent to the uncommented version, use it.
                 try:
-                    stripped_the_code, stripped_code_block = equivalent_code(
-                        the_code, code_block
+                    stripped_original_code, stripped_proposed_new_code = equivalent_code(
+                        original_code, proposed_new_code
                     )
-                    if stripped_the_code == stripped_code_block:
+                    if stripped_original_code == stripped_proposed_new_code:
                         logging.info(
-                            f"CODE EQUIVALENT\n=====\n{stripped_the_code}\n=====\n{stripped_code_block}"
+                            f"CODE EQUIVALENT\n=====\n{stripped_original_code}\n=====\n{stripped_proposed_new_code}"
                         )
-                        last_good_code_block = code_block
+                        last_good_code_block = proposed_new_code
                     else:
-                        logging.info(f"CODE DIFFERENT {len(stripped_the_code)} {len(stripped_code_block)}\n")
+                        logging.info(f"CODE DIFFERENT {len(stripped_original_code)} {len(stripped_proposed_new_code)}\n")
                         code_block = ""
                         continue
                 except IndentationError:
@@ -463,10 +455,6 @@ def update_args(
             new_args.append(arg)
     old_function_ast.args.args = new_args
     return old_function_ast
-
-
-test = '\ndef abs(n):\n    """ WUT """\n    # Check if integer is negative\n    if n < 0:\n        # Return the opposite sign of n (i.e., multiply n by -1)\n        return -n\n    else:\n        # Return n (which is already a positive integer or zero)\n        return n\n'
-test2 = "\ndef abs(n):\n    if n < 0:\n        return -n\n    else:\n        return n\n"
 
 
 def remove_code_before_function(code: str) -> str:
@@ -884,11 +872,11 @@ def extract_code_block(completion: dict) -> str:
     return code_block
 
 
-def validated(the_code: str, code_block: str) -> bool:
+def validated(original_code: str, code_block: str) -> bool:
     """Check if code block is valid using AST parsing and code comparison.
 
     Args:
-        the_code: A string representing the original code.
+        original_code: A string representing the original code.
         code_block: A string representing the code block to validate.
 
     Returns:
@@ -896,7 +884,7 @@ def validated(the_code: str, code_block: str) -> bool:
     """
     try:
         result_ast_code_block = ast.parse(code_block)
-        result_ast_the_code = ast.parse(the_code)
+        result_ast_original_code = ast.parse(original_code)
     except:
         return False
     if result_ast_code_block and has_types(code_block):
@@ -907,7 +895,6 @@ def validated(the_code: str, code_block: str) -> bool:
 
 async def commentate(
     filename: str,
-    check: bool,
     code: str,
     pbar,
     progress,
@@ -938,22 +925,17 @@ async def commentate(
     programming_language = get_language_from_file_name(filename) + " "
     the_funcs = []
     for func_name in enumerate_functions(code):
-        the_code = extract_function_source(code, func_name)
-        # Only try to process code without docstrings or type annotations (unless checking).
-        if check or not (has_docstring(the_code) and has_types(the_code)):
+        original_code = extract_function_source(code, func_name)
+        # Only try to process code without docstrings or type annotations.
+        if not (has_docstring(original_code) and has_types(original_code)):
             the_funcs.append(func_name)
     if len(the_funcs) == 0:
         return (code, 0)
     else:
-        # from tqdm import tqdm
-        # num_items = len(the_funcs)
-        # pbar.total = num_items
-        # pbar = tqdm(total=num_items, desc=)
         tasks = [
             get_comments(
                 programming_language,
                 f,
-                check,
                 translate_text,
                 extract_function_source(code, f),
                 pbar,
@@ -966,32 +948,13 @@ async def commentate(
         for func_name, code_block in zip(the_funcs, code_blocks):
             if not code_block:
                 continue
-            if not check:
-                prev_code = code
-                try:
-                    code = replace_function(code, func_name, code_block)
-                except SyntaxError:
-                    code = prev_code
+            prev_code = code
+            try:
+                code = replace_function(code, func_name, code_block)
+            except SyntaxError:
+                code = prev_code
     import_stmt = generate_import(ast.parse(code))
     if import_stmt:
         code = import_stmt + "\n" + code
     global successful_comments
     return (code, successful_comments)
-
-
-# print(generate_import(ast.parse('x = 12\n\ndef whatever(n: float) -> Dict[str]:\n    """Creates a dictionary with a pre-defined key-value pair where key is \'X\' and value is 12.\nIf the input argument n is equal to 0.1234, then a new key-value pair is added to the dictionary \nwith key \'COOL\' and value 1.\n\n:param n: A float input value.\n:return: A dictionary containing key-value pairs."""\n    d = {\'X\': 12}\n    if n == 0.1234:\n        d[\'COOL\'] = 1\n    return d\n\ndef absolutely(n: int) -> Union[int, bool]:\n    """Return the absolute value of the input integer.\n\nArgs:\n    n (int): The input integer.\n\nReturns:\n    int: The absolute value of the input integer."""\n    if n < 0:\n        return -n\n    else:\n        return n\nprint(\'WOOT\')\n')))
-
-
-def api_key() -> str:
-    """
-    Get the API key from the environment variable 'OPENAI_API_KEY'.
-
-    :return: The value of the environment variable 'OPENAI_API_KEY'.
-    :rtype: str
-    """
-    key = ""
-    try:
-        key = os.environ["OPENAI_API_KEY"]
-    except:
-        pass
-    return key
