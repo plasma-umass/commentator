@@ -427,7 +427,7 @@ def replace_function_annotations(target, source):
         if ast.get_docstring(target):
             target.body[0].value.s = ast.get_docstring(source)
         else:
-            docstring_node = ast.Expr(ast.Str(ast.get_docstring(source)))
+            docstring_node = ast.Expr(ast.Constant(ast.get_docstring(source)))
             target.body.insert(0, docstring_node)
 
 
@@ -591,7 +591,7 @@ def has_docstring(func_code: str) -> bool:
             if (
                 node.body
                 and isinstance(node.body[0], ast.Expr)
-                and isinstance(node.body[0].value, ast.Str)
+                and isinstance(node.body[0].value, ast.Constant)
             ):
                 return len(node.body[0].value.s) > 0
     return False
