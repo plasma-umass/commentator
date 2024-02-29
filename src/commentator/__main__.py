@@ -127,7 +127,7 @@ def do_strip_comments(progress, files):
 @click.option('--strip-types/--no-strip-types', default=False, help="Just strip existing types and exit.")
 @click.option('--strip-comments/--no-strip-comments', default=False, help="Just strip existing comments and exit.")
 def main(file, language, strip_types, strip_comments):
-    """Automatically adds comments to your code.
+    """Automatically adds comments, docstrings, and types to your code.
 
     See https://github.com/plasma-umass/commentator for more information.
     """
